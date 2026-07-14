@@ -41,20 +41,24 @@ export async function renderOverzicht(root) {
         const waarde = kaart.get(`${g.id}:${maand}`) ?? '';
         return `
           <td class="cel">
-            <input class="dagen-input" type="number" min="0" step="1"
-                   inputmode="numeric"
-                   value="${waarde}"
-                   data-groep="${g.id}" data-maand="${maand}"
-                   aria-label="${g.naam} — ${MAANDEN[i]}" />
-            <span class="bedrag" data-groep="${g.id}" data-maand="${maand}">
-              ${waarde === '' ? '—' : euro.format(Number(waarde) * dagprijs)}
-            </span>
+            <div class="cel-inhoud">
+              <input class="dagen-input" type="number" min="0" step="1"
+                     inputmode="numeric"
+                     value="${waarde}"
+                     data-groep="${g.id}" data-maand="${maand}"
+                     aria-label="${g.naam} — ${MAANDEN[i]}" />
+              <span class="bedrag" data-groep="${g.id}" data-maand="${maand}">
+                ${waarde === '' ? '—' : euro.format(Number(waarde) * dagprijs)}
+              </span>
+            </div>
           </td>`;
       }).join('');
 
       return `
         <tr>
-          <th class="groep-cel" scope="row">${g.naam}</th>
+          <th class="groep-cel" scope="row">
+            <a class="groep-link" href="#/groep/${g.id}">${g.naam}</a>
+          </th>
           ${cellen}
           <td class="totaal-cel" data-groep-totaal="${g.id}">€ 0,00</td>
         </tr>`;

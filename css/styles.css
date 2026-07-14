@@ -248,6 +248,12 @@ body {
 .overzicht-tabel thead th.hoek { border-right: 1px solid var(--rand); }
 
 .cel { padding: 6px 8px; text-align: right; vertical-align: middle; }
+.cel-inhoud {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
 .dagen-input {
   width: 54px;
   padding: 5px 6px;
@@ -256,15 +262,22 @@ body {
   text-align: right;
   font-size: 14px;
   font-family: inherit;
+  flex-shrink: 0;
 }
 .dagen-input:focus { outline: 2px solid var(--paars-licht); border-color: var(--paars); }
 .bedrag {
-  display: block;
   font-size: 12px;
   color: var(--tekst-zacht);
-  margin-top: 2px;
   white-space: nowrap;
+  min-width: 52px;
+  text-align: right;
 }
+.groep-link {
+  color: var(--tekst);
+  text-decoration: none;
+  font-weight: 700;
+}
+.groep-link:hover { color: var(--paars); text-decoration: underline; }
 .totaal-kop { text-align: right; }
 .totaal-cel {
   text-align: right;

@@ -19,5 +19,5 @@ export const MAANDEN = [
   'Maart',
   'April',
   'Mei',
-  'Juni',
+  'Juni/juli',
 ];
