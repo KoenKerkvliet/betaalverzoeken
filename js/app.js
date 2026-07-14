@@ -1,33 +1,52 @@
 import { supabase, vereisSessie } from './supabaseClient.js';
+import { getGroepen } from './data.js';
 import { renderOverzicht } from './overzicht.js';
 import { renderInstellingen } from './instellingen.js';
+import { renderGroep } from './groep.js';
 
 const content = document.getElementById('content');
-const nav = document.getElementById('nav');
+const navGroepen = document.getElementById('nav-groepen');
 const logoutBtn = document.getElementById('logout-btn');
 
-const routes = {
-  overzicht: renderOverzicht,
-  instellingen: renderInstellingen,
-};
-
-function huidigeRoute() {
-  const hash = window.location.hash.replace(/^#\//, '');
-  return routes[hash] ? hash : 'overzicht';
+function parseRoute() {
+  const raw = window.location.hash.replace(/^#\//, '');
+  const [base, id] = raw.split('/');
+  if (base === 'instellingen') return { name: 'instellingen', key: 'instellingen' };
+  if (base === 'groep' && id) return { name: 'groep', id, key: `groep/${id}` };
+  return { name: 'overzicht', key: 'overzicht' };
 }
 
-function markeerActief(route) {
+function markeerActief(routeKey) {
   document.querySelectorAll('[data-route]').forEach((el) => {
-    el.classList.toggle('active', el.dataset.route === route);
+    el.classList.toggle('active', el.dataset.route === routeKey);
   });
 }
 
+// Vult de sidebar met alle groepen onder "Overzicht".
+async function renderNav() {
+  const groepen = await getGroepen();
+  navGroepen.innerHTML = groepen
+    .map(
+      (g) =>
+        `<a href="#/groep/${g.id}" data-route="groep/${g.id}" class="nav-item nav-groep">${g.naam}</a>`
+    )
+    .join('');
+}
+
 async function render() {
-  const route = huidigeRoute();
-  markeerActief(route);
+  const route = parseRoute();
+  markeerActief(route.key);
   content.innerHTML = '<div class="loader">Laden…</div>';
   try {
-    await routes[route](content);
+    if (route.name === 'instellingen') {
+      await renderInstellingen(content);
+      await renderNav(); // groepen kunnen zijn gewijzigd
+    } else if (route.name === 'groep') {
+      await renderGroep(content, route.id);
+    } else {
+      await renderOverzicht(content);
+    }
+    markeerActief(route.key);
   } catch (err) {
     console.error(err);
     content.innerHTML =
@@ -47,5 +66,6 @@ window.addEventListener('hashchange', render);
   const sessie = await vereisSessie();
   if (!sessie) return; // vereisSessie stuurt zelf door naar login
   if (!window.location.hash) window.location.hash = '#/overzicht';
+  await renderNav();
   render();
 })();
