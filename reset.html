@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>TSO Betaalverzoeken — Nieuw wachtwoord</title>
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body class="auth-body">
+  <main class="auth-card">
+    <div class="auth-brand">
+      <div class="auth-logo">TSO</div>
+      <h1>Nieuw wachtwoord</h1>
+      <p class="muted">Kies een nieuw wachtwoord voor je account</p>
+    </div>
+
+    <form id="reset-form" class="auth-form">
+      <label>
+        Nieuw wachtwoord
+        <input type="password" id="password" required minlength="8" autocomplete="new-password" placeholder="••••••••" />
+      </label>
+      <label>
+        Herhaal wachtwoord
+        <input type="password" id="password2" required minlength="8" autocomplete="new-password" placeholder="••••••••" />
+      </label>
+
+      <button type="submit" class="btn btn-primary" id="reset-btn">Wachtwoord opslaan</button>
+      <p id="msg" class="msg" role="status" aria-live="polite"></p>
+    </form>
+  </main>
+
+  <script type="module" src="js/reset.js"></script>
+</body>
+</html>

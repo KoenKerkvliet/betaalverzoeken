@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>TSO Betaalverzoeken — Inloggen</title>
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body class="auth-body">
+  <main class="auth-card">
+    <div class="auth-brand">
+      <div class="auth-logo">TSO</div>
+      <h1>Betaalverzoeken</h1>
+      <p class="muted">Log in om verder te gaan</p>
+    </div>
+
+    <form id="login-form" class="auth-form" autocomplete="on">
+      <label>
+        E-mailadres
+        <input type="email" id="email" required autocomplete="username" placeholder="jij@voorbeeld.nl" />
+      </label>
+      <label>
+        Wachtwoord
+        <input type="password" id="password" required autocomplete="current-password" placeholder="••••••••" />
+      </label>
+
+      <button type="submit" class="btn btn-primary" id="login-btn">Inloggen</button>
+
+      <p class="auth-links">
+        <a href="#" id="forgot-link">Wachtwoord vergeten?</a>
+      </p>
+
+      <p id="msg" class="msg" role="status" aria-live="polite"></p>
+    </form>
+  </main>
+
+  <script type="module" src="js/login.js"></script>
+</body>
+</html>
