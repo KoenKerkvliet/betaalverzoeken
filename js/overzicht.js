@@ -5,8 +5,8 @@ import { decryptText, isUnlocked } from './crypto.js';
 import { getHuidigSchooljaar } from './state.js';
 
 function pseudoniem(v, a) {
-  const init = a ? ` ${a.trim()[0].toUpperCase()}.` : '';
-  return `${v}${init}`;
+  const kern = (a || '').trim().split(/\s+/).pop();
+  return kern ? `${v} ${kern[0].toUpperCase()}.` : v;
 }
 
 function escapeHtml(s) {

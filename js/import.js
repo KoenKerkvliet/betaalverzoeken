@@ -43,7 +43,20 @@ export function parseEdex(xmlTekst) {
   // Leerlingen (leerkrachten expliciet overgeslagen)
   const leerlingen = [];
   doc.querySelectorAll('EDEX > leerlingen > leerling').forEach((l) => {
-    const achternaam = l.querySelector('achternaam')?.textContent?.trim() || '';
+    const achternaamKern = l.querySelector('achternaam')?.textContent?.trim() || '';
+
+    // Tussenvoegsel staat in EDEX vaak in een apart veld (bijv. <voorvoegsel>).
+    // Pak elk kind-element met 'voorvoegsel' of 'tussenvoegsel' in de tagnaam.
+    let tussenvoegsel = '';
+    for (const kind of l.children) {
+      const tag = kind.tagName.toLowerCase();
+      if ((tag.includes('voorvoegsel') || tag.includes('tussenvoegsel')) && kind.textContent.trim()) {
+        tussenvoegsel = kind.textContent.trim();
+        break;
+      }
+    }
+    const achternaam = tussenvoegsel ? `${tussenvoegsel} ${achternaamKern}` : achternaamKern;
+
     const roepnaam = l.querySelector('roepnaam')?.textContent?.trim() || '';
     const voornamen = l.querySelector('voornamen')?.textContent?.trim() || '';
     const voornaam = roepnaam || voornamen; // roepnaam heeft voorkeur
@@ -279,8 +292,20 @@ function escapeHtml(s) {
 // Betaal-export (.xlsx) — kolommen: Groep · Leerling · Betaling
 // ===========================================================================
 
+// Normaliseert een naam voor matching: accenten weg, kleine letters,
+// dubbele spaties samengevoegd. Zo matchen "Romée" en "Romee",
+// "van  der Wal" en "van der Wal", enz.
+function normaliseer(s) {
+  return String(s || '')
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function naamSleutel(groep, naam) {
-  return `${(groep || '').toLowerCase().trim()}|${(naam || '').toLowerCase().trim()}`;
+  return `${normaliseer(groep)}|${normaliseer(naam)}`;
 }
 
 // Parset een .xlsx client-side met SheetJS (lazy geladen van de CDN).

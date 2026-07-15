@@ -11,10 +11,11 @@ import {
 import { encryptText, decryptText, isUnlocked } from './crypto.js';
 import { getHuidigSchooljaar } from './state.js';
 
-// Maakt van {voornaam, achternaam} het pseudoniem "Voornaam A."
+// Maakt van {voornaam, achternaam} het pseudoniem "Voornaam A." — de initiaal
+// is die van de achternaam-kern (laatste woord), dus tussenvoegsels tellen niet.
 function pseudoniem(v, a) {
-  const init = a ? ` ${a.trim()[0].toUpperCase()}.` : '';
-  return `${v}${init}`;
+  const kern = (a || '').trim().split(/\s+/).pop();
+  return kern ? `${v} ${kern[0].toUpperCase()}.` : v;
 }
 
 export async function renderGroep(root, id) {
