@@ -487,6 +487,17 @@ body {
 .zoek-item:hover { background: var(--paars-licht); }
 .zoek-leeg { padding: 10px 12px; color: var(--tekst-zacht); font-size: 13px; }
 .leergeld-tabel td:last-child, .leergeld-tabel th:last-child { width: 30px; text-align: right; }
+.leergeld-bedrag { white-space: nowrap; }
+.leergeld-bedrag-input {
+  width: 82px;
+  padding: 4px 6px;
+  border: 1px solid var(--rand);
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: 14px;
+  text-align: right;
+}
+.leergeld-bedrag-input:focus { outline: 2px solid var(--paars-licht); border-color: var(--paars); }
 
 /* Groepspagina: bedrag-matrix */
 .bedrag-cel {

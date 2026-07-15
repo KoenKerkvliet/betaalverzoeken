@@ -147,11 +147,9 @@ export async function getLeerlingen(groep) {
   return data ?? [];
 }
 
-export async function updateLeergeld(id, waarde) {
-  const { error } = await supabase
-    .from('leerlingen')
-    .update({ leergeld: waarde })
-    .eq('id', id);
+// velden mag { leergeld, leergeld_bedrag } bevatten (één of beide).
+export async function setLeergeld(id, velden) {
+  const { error } = await supabase.from('leerlingen').update(velden).eq('id', id);
   if (error) throw error;
 }
 

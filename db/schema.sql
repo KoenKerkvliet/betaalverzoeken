@@ -57,7 +57,8 @@ create table if not exists public.leerlingen (
   groep_id   uuid not null references public.groepen(id) on delete cascade,
   enc_naam   text not null,   -- ciphertext (base64) van {voornaam, achternaam}
   iv         text not null,   -- unieke IV per leerling (base64)
-  leergeld   boolean not null default false, -- vergoed door Stichting Leergeld
+  leergeld        boolean not null default false, -- vergoed door Stichting Leergeld
+  leergeld_bedrag numeric(8,2),                    -- handmatig in te vullen bedrag
   created_at timestamptz not null default now()
 );
 create index if not exists leerlingen_groep_idx on public.leerlingen(groep_id);

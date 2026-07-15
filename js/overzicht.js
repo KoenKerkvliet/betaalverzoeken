@@ -1,6 +1,6 @@
 import { euro } from './supabaseClient.js';
 import { MAANDEN, MAANDEN_KORT } from './config.js';
-import { getGroepen, getTsoDagen, upsertTsoDagen, getLeerlingen, updateLeergeld } from './data.js';
+import { getGroepen, getTsoDagen, upsertTsoDagen, getLeerlingen, setLeergeld } from './data.js';
 import { decryptText, isUnlocked } from './crypto.js';
 import { getHuidigSchooljaar } from './state.js';
 
@@ -24,17 +24,17 @@ function leergeldRijenHtml(leerlingen, groepNaam, groepJaarTotaal) {
     return `<tr><td colspan="4" class="muted" style="padding:12px">Nog geen leerlingen gekoppeld. Zoek hierboven een leerling om te koppelen.</td></tr>`;
   }
   return gekoppeld
-    .map(
-      (l) => `
+    .map((l) => {
+      const bedrag = l.leergeld_bedrag != null ? Number(l.leergeld_bedrag) : groepJaarTotaal(l.groep_id);
+      return `
       <tr data-id="${l.id}">
         <td>${escapeHtml(pseudoniem(l.voornaam, l.achternaam))}</td>
         <td>${escapeHtml(groepNaam.get(l.groep_id) || '')}</td>
-        <td class="leergeld-bedrag" data-leergeld-groep="${l.groep_id}">${euro.format(
-        groepJaarTotaal(l.groep_id)
-      )}</td>
+        <td class="leergeld-bedrag">€ <input type="number" min="0" step="0.01"
+              class="leergeld-bedrag-input" data-id="${l.id}" value="${bedrag.toFixed(2)}" /></td>
         <td><button class="mini-x" data-ontkoppel="${l.id}" title="Ontkoppelen">✕</button></td>
-      </tr>`
-    )
+      </tr>`;
+    })
     .join('');
 }
 
@@ -98,7 +98,14 @@ export async function renderOverzicht(root) {
       } catch {
         /* onleesbaar */
       }
-      alleLeerlingen.push({ id: r.id, voornaam: v, achternaam: a, groep_id: r.groep_id, leergeld: r.leergeld });
+      alleLeerlingen.push({
+        id: r.id,
+        voornaam: v,
+        achternaam: a,
+        groep_id: r.groep_id,
+        leergeld: r.leergeld,
+        leergeld_bedrag: r.leergeld_bedrag,
+      });
     }
   }
 
@@ -212,10 +219,6 @@ export async function renderOverzicht(root) {
       }
       const cel = root.querySelector(`[data-groep-totaal="${g.id}"]`);
       if (cel) cel.textContent = euro.format(groepTotaal);
-      // Leergeld-bedragen van deze groep live meelaten lopen
-      root
-        .querySelectorAll(`[data-leergeld-groep="${g.id}"]`)
-        .forEach((el) => (el.textContent = euro.format(groepTotaal)));
       eindtotaal += groepTotaal;
     }
   }
@@ -309,14 +312,30 @@ export async function renderOverzicht(root) {
   resultaten.addEventListener('click', async (e) => {
     const btn = e.target.closest('[data-koppel]');
     if (!btn) return;
-    await updateLeergeld(btn.dataset.koppel, true);
+    const l = alleLeerlingen.find((x) => x.id === btn.dataset.koppel);
+    const startbedrag = l ? groepJaarTotaal(l.groep_id) : 0;
+    await setLeergeld(btn.dataset.koppel, { leergeld: true, leergeld_bedrag: startbedrag });
     await renderOverzicht(root);
   });
 
-  root.querySelector('#leergeld-body').addEventListener('click', async (e) => {
+  const leergeldBody = root.querySelector('#leergeld-body');
+  leergeldBody.addEventListener('click', async (e) => {
     const btn = e.target.closest('[data-ontkoppel]');
     if (!btn) return;
-    await updateLeergeld(btn.dataset.ontkoppel, false);
+    await setLeergeld(btn.dataset.ontkoppel, { leergeld: false });
     await renderOverzicht(root);
+  });
+
+  // Bedrag handmatig aanpassen (opslaan bij wijzigen/verlaten van het veld).
+  leergeldBody.addEventListener('change', async (e) => {
+    const input = e.target.closest('.leergeld-bedrag-input');
+    if (!input) return;
+    const bedrag = Math.max(0, Number(input.value) || 0);
+    input.value = bedrag.toFixed(2);
+    try {
+      await setLeergeld(input.dataset.id, { leergeld_bedrag: bedrag });
+    } catch (err) {
+      console.error(err);
+    }
   });
 }
