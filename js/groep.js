@@ -1,5 +1,14 @@
-import { getGroepen, getLeerlingen, insertLeerlingen, deleteLeerling } from './data.js';
+import { euro } from './supabaseClient.js';
+import { MAANDEN } from './config.js';
+import {
+  getGroepen,
+  getTsoDagen,
+  getLeerlingen,
+  insertLeerlingen,
+  deleteLeerling,
+} from './data.js';
 import { encryptText, decryptText, isUnlocked } from './crypto.js';
+import { getHuidigSchooljaar } from './state.js';
 
 // Maakt van {voornaam, achternaam} het pseudoniem "Voornaam A."
 function pseudoniem(v, a) {
@@ -8,12 +17,15 @@ function pseudoniem(v, a) {
 }
 
 export async function renderGroep(root, id) {
-  const groepen = await getGroepen();
+  const schooljaar = getHuidigSchooljaar();
+  const dagprijs = Number(schooljaar?.tso_dagprijs) || 0;
+
+  const groepen = schooljaar ? await getGroepen(schooljaar.id) : [];
   const groep = groepen.find((g) => g.id === id);
 
   if (!groep) {
     root.innerHTML =
-      '<div class="empty-state">Deze groep bestaat niet (meer). Kies een groep in de zijbalk.</div>';
+      '<div class="empty-state">Deze groep bestaat niet in dit schooljaar. Kies een groep in de zijbalk.</div>';
     return;
   }
 
@@ -23,6 +35,15 @@ export async function renderGroep(root, id) {
       <div class="empty-state">De encryptie is niet ontgrendeld. Herlaad de pagina en voer je passphrase in.</div>`;
     return;
   }
+
+  // Bedrag per maand voor deze groep (dagen × dagprijs)
+  const tsoDagen = await getTsoDagen([id]);
+  const dagenPerMaand = new Map();
+  for (const d of tsoDagen) dagenPerMaand.set(d.maand, d.dagen);
+  const maandBedrag = (maand) => {
+    const dg = dagenPerMaand.get(maand);
+    return dg == null ? null : dg * dagprijs;
+  };
 
   // Leerlingen ophalen en ontsleutelen
   const rijen = await getLeerlingen(id);
@@ -37,41 +58,66 @@ export async function renderGroep(root, id) {
   }
   leerlingen.sort((x, y) => x.voornaam.localeCompare(y.voornaam, 'nl'));
 
+  // Jaartotaal per leerling (gelijk voor de hele groep)
+  let jaarTotaal = 0;
+  for (let m = 1; m <= MAANDEN.length; m++) jaarTotaal += maandBedrag(m) ?? 0;
+
+  const maandKoppen = MAANDEN.map((m) => `<th class="maand">${m}</th>`).join('');
+
+  const bedragCellen = MAANDEN.map((_, i) => {
+    const b = maandBedrag(i + 1);
+    return `<td class="cel bedrag-cel">${b == null ? '<span class="leeg">—</span>' : euro.format(b)}</td>`;
+  }).join('');
+
+  const leerlingRijen = leerlingen
+    .map(
+      (l) => `
+      <tr>
+        <th class="groep-cel" scope="row">
+          <div class="leerling-cel">
+            <span>${pseudoniem(l.voornaam, l.achternaam)}</span>
+            <button class="mini-x" data-del="${l.id}" title="Leerling verwijderen">✕</button>
+          </div>
+        </th>
+        ${bedragCellen}
+        <td class="totaal-cel">${euro.format(jaarTotaal)}</td>
+      </tr>`
+    )
+    .join('');
+
   root.innerHTML = `
     <header class="page-head">
       <h1>Groep ${groep.naam}</h1>
-      <p class="muted">${leerlingen.length} leerling(en) · namen zijn versleuteld opgeslagen</p>
+      <p class="muted">${leerlingen.length} leerling(en) · schooljaar ${schooljaar.naam} · bedragen komen uit het <a href="#/overzicht">Overzicht</a></p>
     </header>
 
-    <section class="kaart">
-      <h2>Leerlingen</h2>
-      <ul class="groep-lijst" id="leerling-lijst">
-        ${
-          leerlingen
-            .map(
-              (l) => `
-          <li data-id="${l.id}">
-            <span class="groep-naam">${pseudoniem(l.voornaam, l.achternaam)}</span>
-            <span class="groep-acties">
-              <button class="btn btn-ghost btn-danger" data-delete>Verwijderen</button>
-            </span>
-          </li>`
-            )
-            .join('') || '<li class="muted">Nog geen leerlingen. Voeg ze toe of gebruik Importeren.</li>'
-        }
-      </ul>
+    <div class="tabel-wrap">
+      <table class="overzicht-tabel">
+        <thead>
+          <tr>
+            <th class="hoek">Leerling</th>
+            ${maandKoppen}
+            <th class="totaal-kop">Totaal</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${
+            leerlingRijen ||
+            `<tr><td class="cel" colspan="${MAANDEN.length + 2}" style="text-align:left;padding:14px">Nog geen leerlingen. Voeg toe via <a href="#/import">EDEX</a> of hieronder.</td></tr>`
+          }
+        </tbody>
+      </table>
+    </div>
 
-      <form id="leerling-form" class="inline-form">
-        <label>Voornaam
-          <input type="text" id="voornaam" required maxlength="60" placeholder="bijv. Sanne" />
-        </label>
-        <label>Achternaam
-          <input type="text" id="achternaam" maxlength="60" placeholder="bijv. de Vries" />
-        </label>
-        <button type="submit" class="btn btn-primary">Toevoegen</button>
-      </form>
-      <p class="muted" style="font-size:12px;margin-top:8px">Op het scherm zie je alleen voornaam + eerste letter achternaam. De volledige naam wordt versleuteld opgeslagen.</p>
-    </section>
+    <form id="leerling-form" class="inline-form" style="margin-top:16px">
+      <label>Voornaam
+        <input type="text" id="voornaam" required maxlength="60" placeholder="bijv. Sanne" />
+      </label>
+      <label>Achternaam
+        <input type="text" id="achternaam" maxlength="60" placeholder="bijv. de Vries" />
+      </label>
+      <button type="submit" class="btn btn-primary">Leerling toevoegen</button>
+    </form>
   `;
 
   // Toevoegen
@@ -86,12 +132,11 @@ export async function renderGroep(root, id) {
   });
 
   // Verwijderen
-  root.querySelectorAll('[data-delete]').forEach((btn) => {
+  root.querySelectorAll('[data-del]').forEach((btn) => {
     btn.addEventListener('click', async () => {
-      const li = btn.closest('li');
-      const naam = li.querySelector('.groep-naam').textContent;
+      const naam = btn.closest('tr').querySelector('.leerling-cel span').textContent;
       if (window.confirm(`Leerling "${naam}" verwijderen?`)) {
-        await deleteLeerling(li.dataset.id);
+        await deleteLeerling(btn.dataset.del);
         await renderGroep(root, id);
       }
     });

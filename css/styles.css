@@ -101,7 +101,7 @@ body {
 
 /* --- App layout --------------------------------------------------------- */
 
-.layout { display: flex; min-height: 100vh; }
+.layout { display: flex; height: 100vh; overflow: hidden; }
 
 .sidebar {
   width: 232px;
@@ -111,10 +111,43 @@ body {
   display: flex;
   flex-direction: column;
   padding: 18px 14px;
-  position: sticky;
-  top: 0;
   height: 100vh;
+  overflow-y: auto;
 }
+
+/* Rechterkolom: smalle header + scrollende inhoud */
+.hoofd {
+  flex: 1;
+  min-width: 0;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+.topbar {
+  flex-shrink: 0;
+  height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 14px;
+  padding: 0 24px;
+  background: var(--wit);
+  border-bottom: 1px solid var(--rand);
+}
+.topbar-knop {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 14px;
+  border: 1px solid var(--rand);
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--tekst);
+  text-decoration: none;
+}
+.topbar-knop:hover { background: #f3f4f6; }
+.topbar-knop.active { background: var(--paars); border-color: var(--paars); color: #fff; }
 .brand {
   display: flex;
   align-items: center;
@@ -180,17 +213,17 @@ body {
   width: 100%;
 }
 
-/* Subtiele schooljaar-switcher onderin de sidebar */
+/* Schooljaar-switcher in de header (inline) */
 .schooljaar-kiezer {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin-top: 12px;
-  padding: 8px 12px 0;
-  font-size: 10px;
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--tekst-zacht);
+  white-space: nowrap;
 }
 .schooljaar-kiezer select {
   font-family: inherit;
@@ -198,14 +231,14 @@ body {
   text-transform: none;
   letter-spacing: 0;
   color: var(--tekst);
-  padding: 5px 6px;
+  padding: 6px 8px;
   border: 1px solid var(--rand);
   border-radius: 6px;
   background: var(--wit);
   cursor: pointer;
 }
 
-.content { flex: 1; padding: 28px 32px; min-width: 0; }
+.content { flex: 1; padding: 24px 28px; overflow: auto; }
 .loader { color: var(--tekst-zacht); padding: 40px 0; }
 
 .page-head { margin-bottom: 20px; }
@@ -345,6 +378,31 @@ body {
 .cel.ingeklapt .cel-inhoud { display: none; }
 .maand.ingeklapt .maand-kop { justify-content: center; width: 100%; }
 
+/* Groepspagina: bedrag-matrix */
+.bedrag-cel {
+  padding: 4px 12px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.bedrag-cel .leeg { color: #cbd5e1; }
+.leerling-cel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.mini-x {
+  border: none;
+  background: transparent;
+  color: #cbd5e1;
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+.mini-x:hover { color: var(--rood); background: #fef2f2; }
+
 .save-status {
   display: inline-block;
   margin-top: 12px;
@@ -447,16 +505,17 @@ input[type="file"] { font-family: inherit; font-size: 14px; }
 /* --- Responsive --------------------------------------------------------- */
 
 @media (max-width: 720px) {
-  .layout { flex-direction: column; }
+  .layout { flex-direction: column; height: auto; overflow: visible; }
   .sidebar {
     width: 100%;
     height: auto;
-    position: static;
     flex-direction: row;
     align-items: center;
     flex-wrap: wrap;
     gap: 8px;
   }
   .nav, .sidebar-bottom { flex-direction: row; border: none; padding-top: 0; }
-  .content { padding: 20px 16px; }
+  .hoofd { height: auto; }
+  .topbar { padding: 0 16px; }
+  .content { padding: 20px 16px; overflow: visible; }
 }
