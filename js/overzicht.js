@@ -7,6 +7,8 @@ import {
   getLeerlingen,
   setLeergeld,
   getBetalingen,
+  getOvergemaakt,
+  upsertOvergemaakt,
 } from './data.js';
 import { decryptText, isUnlocked } from './crypto.js';
 import { getHuidigSchooljaar } from './state.js';
@@ -127,6 +129,12 @@ export async function renderOverzicht(root) {
     }
   }
 
+  // Handmatig ingevoerde "overgemaakt"-bedragen per maand.
+  const overgemaaktMap = {};
+  for (const o of await getOvergemaakt(schooljaar.id)) overgemaaktMap[o.maand] = Number(o.bedrag);
+  const overgemaaktTotaal = () =>
+    Object.values(overgemaaktMap).reduce((a, b) => a + (Number(b) || 0), 0);
+
   const ingeklapt = leesIngeklapt();
 
   // Kolomkoppen — klikbaar om in/uit te klappen
@@ -208,6 +216,20 @@ export async function renderOverzicht(root) {
               </td>`;
             }).join('')}
             <td class="totaal-cel">${euro.format(schoolTotaal)}</td>
+          </tr>
+          <tr class="overgemaakt-rij">
+            <th class="groep-cel totaal-label" scope="row">Overgemaakt</th>
+            ${MAANDEN.map((_, i) => {
+              const maand = i + 1;
+              const dicht = ingeklapt.has(maand) ? ' ingeklapt' : '';
+              const val = overgemaaktMap[maand];
+              return `<td class="cel bedrag-cel${dicht}" data-col="${maand}">
+                <span class="cel-inhoud"><input type="number" class="overgemaakt-input"
+                  data-maand="${maand}" step="0.01" min="0" inputmode="decimal" placeholder="—"
+                  value="${val != null ? Number(val).toFixed(2) : ''}" /></span>
+              </td>`;
+            }).join('')}
+            <td class="totaal-cel" id="overgemaakt-totaal">${euro.format(overgemaaktTotaal())}</td>
           </tr>
         </tfoot>
       </table>
@@ -403,5 +425,23 @@ export async function renderOverzicht(root) {
     } catch (err) {
       console.error(err);
     }
+  });
+
+  // --- Overgemaakt: handmatige invoer per maand --------------------------
+  root.querySelectorAll('.overgemaakt-input').forEach((inp) => {
+    inp.addEventListener('change', async () => {
+      const maand = Number(inp.dataset.maand);
+      const ruw = inp.value.trim();
+      const bedrag = ruw === '' ? 0 : Math.max(0, Number(ruw) || 0);
+      if (ruw !== '') inp.value = bedrag.toFixed(2);
+      overgemaaktMap[maand] = bedrag;
+      const totCel = root.querySelector('#overgemaakt-totaal');
+      if (totCel) totCel.textContent = euro.format(overgemaaktTotaal());
+      try {
+        await upsertOvergemaakt(schooljaar.id, maand, bedrag);
+      } catch (e) {
+        console.error(e);
+      }
+    });
   });
 }

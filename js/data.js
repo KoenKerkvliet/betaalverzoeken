@@ -179,6 +179,24 @@ export async function upsertBetalingen(rows) {
   if (error) throw error;
 }
 
+// --- Overgemaakt (handmatig, per schooljaar per maand) --------------------
+
+export async function getOvergemaakt(schooljaarId) {
+  const { data, error } = await supabase
+    .from('overgemaakt')
+    .select('*')
+    .eq('schooljaar_id', schooljaarId);
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function upsertOvergemaakt(schooljaarId, maand, bedrag) {
+  const { error } = await supabase
+    .from('overgemaakt')
+    .upsert({ schooljaar_id: schooljaarId, maand, bedrag }, { onConflict: 'schooljaar_id,maand' });
+  if (error) throw error;
+}
+
 export async function insertLeerlingen(rows) {
   if (!rows.length) return;
   const { error } = await supabase.from('leerlingen').insert(rows);

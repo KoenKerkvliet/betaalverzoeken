@@ -77,6 +77,16 @@ create table if not exists public.betalingen (
 );
 create index if not exists betalingen_leerling_idx on public.betalingen(leerling_id);
 
+-- --- Overgemaakt (handmatig, per schooljaar per maand) --------------------
+create table if not exists public.overgemaakt (
+  id            uuid primary key default gen_random_uuid(),
+  schooljaar_id uuid not null references public.schooljaren(id) on delete cascade,
+  maand         smallint not null check (maand between 1 and 10),
+  bedrag        numeric(10,2) not null default 0,
+  updated_at    timestamptz not null default now(),
+  unique (schooljaar_id, maand)
+);
+
 -- ===========================================================================
 -- Row Level Security
 -- Er is geen registratie: alleen door jou in Supabase aangemaakte accounts
@@ -90,6 +100,7 @@ alter table public.groepen      enable row level security;
 alter table public.tso_dagen    enable row level security;
 alter table public.leerlingen   enable row level security;
 alter table public.betalingen   enable row level security;
+alter table public.overgemaakt  enable row level security;
 
 do $$
 begin
@@ -121,6 +132,11 @@ begin
   -- betalingen
   if not exists (select 1 from pg_policies where tablename = 'betalingen' and policyname = 'ingelogd_alles') then
     create policy ingelogd_alles on public.betalingen
+      for all to authenticated using (true) with check (true);
+  end if;
+  -- overgemaakt
+  if not exists (select 1 from pg_policies where tablename = 'overgemaakt' and policyname = 'ingelogd_alles') then
+    create policy ingelogd_alles on public.overgemaakt
       for all to authenticated using (true) with check (true);
   end if;
 end $$;
