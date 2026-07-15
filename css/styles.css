@@ -517,6 +517,8 @@ body {
 .bedrag-cel.voor-instroom { background: #f1f5f9; }
 .bedrag-cel.uitgesloten { background: #dbeafe; }
 .bedrag-cel.regeling { background: #fee2e2; cursor: help; }
+/* €0,00 = niet betaald → opvallend (maar niet schreeuwerig) rood signaal */
+.bedrag-cel.niet-betaald { background: #fca5a5; color: var(--tekst); font-weight: 700; }
 
 /* Totaalrij "Binnengekomen" per maand */
 .maand-totaal-rij .groep-cel,

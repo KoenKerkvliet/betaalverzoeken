@@ -99,7 +99,8 @@ export async function renderGroep(root, id) {
     MAANDEN.map((_, i) => {
       const maand = i + 1;
       const betaald = betaalMap.get(`${l.id}:${maand}`);
-      const betaaldCls = betaald != null ? ' betaald' : '';
+      // €0,00 = wél een betaalregel maar niet betaald → rood signaal.
+      const betaaldCls = betaald == null ? '' : betaald === 0 ? ' niet-betaald' : ' betaald';
       const inhoud = betaald != null ? euro.format(betaald) : '<span class="leeg">—</span>';
       const st = celStatus(l, maand);
       const cls = st.klasse ? ' ' + st.klasse : '';
