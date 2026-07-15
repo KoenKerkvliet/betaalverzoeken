@@ -309,6 +309,10 @@ body {
 .overzicht-tabel thead th.hoek { border-right: 1px solid var(--rand); }
 
 .cel { padding: 3px 8px; text-align: right; vertical-align: middle; }
+
+/* Dun scheidingslijntje tussen de maandkolommen */
+.overzicht-tabel th.maand,
+.overzicht-tabel td.cel { border-left: 1px solid #eef1f5; }
 .cel-inhoud {
   display: flex;
   align-items: center;

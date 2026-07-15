@@ -1,3 +1,11 @@
+export function escapeAttr(s) {
+  return String(s || '')
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
 // Parset een Nederlands bedrag: "8.919,70", "8919,7", "8919.7" of "8919" → getal.
 export function parseBedrag(s) {
   let t = String(s || '').replace(/[€\s]/g, '');

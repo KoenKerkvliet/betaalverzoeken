@@ -1,7 +1,13 @@
 import { supabase, vereisSessie } from './supabaseClient.js';
-import { getGroepen, getInstellingen, getSchooljaren, addOvergemaakt } from './data.js';
+import {
+  getGroepen,
+  getInstellingen,
+  getSchooljaren,
+  addOvergemaakt,
+  getOvergemaaktOpmerkingen,
+} from './data.js';
 import { MAANDEN } from './config.js';
-import { parseBedrag } from './util.js';
+import { parseBedrag, escapeAttr } from './util.js';
 import { restoreKey, isUnlocked, lock } from './crypto.js';
 import {
   setHuidigSchooljaar,
@@ -111,9 +117,16 @@ logoutBtn.addEventListener('click', async () => {
 });
 
 // Betaling toevoegen (overgemaakt) via de header-knop.
-function openBetalingModal() {
+async function openBetalingModal() {
   const sj = getHuidigSchooljaar();
   if (!sj) return;
+
+  let suggesties = [];
+  try {
+    suggesties = await getOvergemaaktOpmerkingen();
+  } catch (e) {
+    console.error(e);
+  }
 
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
@@ -132,7 +145,11 @@ function openBetalingModal() {
           <select id="bet-maand">${MAANDEN.map((m, i) => `<option value="${i + 1}">${m}</option>`).join('')}</select>
         </label>
         <label>Opmerking (optioneel)
-          <input type="text" id="bet-opm" maxlength="200" placeholder="bijv. betaalverzoeken of handmatige overschrijving" />
+          <input type="text" id="bet-opm" list="bet-opm-lijst" maxlength="200"
+                 placeholder="kies een eerdere of typ een nieuwe" />
+          <datalist id="bet-opm-lijst">
+            ${suggesties.map((s) => `<option value="${escapeAttr(s)}"></option>`).join('')}
+          </datalist>
         </label>
         <button type="submit" class="btn btn-primary">Toevoegen</button>
         <p id="bet-msg" class="msg"></p>

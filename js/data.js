@@ -217,6 +217,17 @@ export async function deleteOvergemaakt(id) {
   if (error) throw error;
 }
 
+// Eerder gebruikte opmerkingen (uniek), voor de keuzelijst bij toevoegen.
+export async function getOvergemaaktOpmerkingen() {
+  const { data, error } = await supabase
+    .from('overgemaakt')
+    .select('opmerking')
+    .not('opmerking', 'is', null);
+  if (error) throw error;
+  const set = new Set((data ?? []).map((r) => (r.opmerking || '').trim()).filter(Boolean));
+  return [...set].sort((a, b) => a.localeCompare(b, 'nl'));
+}
+
 export async function insertLeerlingen(rows) {
   if (!rows.length) return;
   const { error } = await supabase.from('leerlingen').insert(rows);
