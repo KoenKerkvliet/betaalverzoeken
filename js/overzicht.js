@@ -1,7 +1,42 @@
 import { euro } from './supabaseClient.js';
 import { MAANDEN, MAANDEN_KORT } from './config.js';
-import { getGroepen, getTsoDagen, upsertTsoDagen } from './data.js';
+import { getGroepen, getTsoDagen, upsertTsoDagen, getLeerlingen, updateLeergeld } from './data.js';
+import { decryptText, isUnlocked } from './crypto.js';
 import { getHuidigSchooljaar } from './state.js';
+
+function pseudoniem(v, a) {
+  const init = a ? ` ${a.trim()[0].toUpperCase()}.` : '';
+  return `${v}${init}`;
+}
+
+function escapeHtml(s) {
+  return String(s).replace(
+    /[&<>"']/g,
+    (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])
+  );
+}
+
+function leergeldRijenHtml(leerlingen, groepNaam, groepJaarTotaal) {
+  const gekoppeld = leerlingen
+    .filter((l) => l.leergeld)
+    .sort((x, y) => x.voornaam.localeCompare(y.voornaam, 'nl'));
+  if (!gekoppeld.length) {
+    return `<tr><td colspan="4" class="muted" style="padding:12px">Nog geen leerlingen gekoppeld. Zoek hierboven een leerling om te koppelen.</td></tr>`;
+  }
+  return gekoppeld
+    .map(
+      (l) => `
+      <tr data-id="${l.id}">
+        <td>${escapeHtml(pseudoniem(l.voornaam, l.achternaam))}</td>
+        <td>${escapeHtml(groepNaam.get(l.groep_id) || '')}</td>
+        <td class="leergeld-bedrag" data-leergeld-groep="${l.groep_id}">${euro.format(
+        groepJaarTotaal(l.groep_id)
+      )}</td>
+        <td><button class="mini-x" data-ontkoppel="${l.id}" title="Ontkoppelen">✕</button></td>
+      </tr>`
+    )
+    .join('');
+}
 
 const OPSLAG_SLEUTEL = 'overzicht_ingeklapte_maanden';
 
@@ -38,6 +73,33 @@ export async function renderOverzicht(root) {
         <a href="#/import">Importeren</a> om een EDEX-bestand in te lezen.</p>
       </div>`;
     return;
+  }
+
+  // Jaartotaal (bedrag) per groep, gebruikt in de Leergeld-sectie.
+  const groepNaam = new Map(groepen.map((g) => [g.id, g.naam]));
+  function groepJaarTotaal(gid) {
+    let t = 0;
+    for (let m = 1; m <= MAANDEN.length; m++) {
+      const v = kaart.get(`${gid}:${m}`);
+      if (v != null && v !== '') t += Number(v) * dagprijs;
+    }
+    return t;
+  }
+
+  // Alle leerlingen van dit schooljaar ontsleutelen (voor zoeken/koppelen).
+  const alleLeerlingen = [];
+  if (isUnlocked()) {
+    const rows = await getLeerlingen(groepen.map((g) => g.id));
+    for (const r of rows) {
+      let v = '⚠︎ onleesbaar';
+      let a = '';
+      try {
+        ({ v, a } = JSON.parse(await decryptText(r.enc_naam, r.iv)));
+      } catch {
+        /* onleesbaar */
+      }
+      alleLeerlingen.push({ id: r.id, voornaam: v, achternaam: a, groep_id: r.groep_id, leergeld: r.leergeld });
+    }
   }
 
   const ingeklapt = leesIngeklapt();
@@ -112,6 +174,21 @@ export async function renderOverzicht(root) {
       </table>
     </div>
     <p id="save-status" class="save-status" aria-live="polite"></p>
+
+    <section class="kaart leergeld-sectie">
+      <h2>Leergeld</h2>
+      <p class="muted">Leerlingen waarvan Stichting Leergeld de kosten vergoedt. Zij doen niet mee met de maandelijkse betalingen en staan op de groepspagina zacht oranje gemarkeerd.</p>
+
+      <div class="leergeld-zoek">
+        <input type="text" id="leergeld-zoek" placeholder="Zoek een leerling om te koppelen…" autocomplete="off" />
+        <div class="zoek-resultaten" id="zoek-resultaten" hidden></div>
+      </div>
+
+      <table class="import-tabel leergeld-tabel">
+        <thead><tr><th>Naam</th><th>Groep</th><th>Bedrag</th><th></th></tr></thead>
+        <tbody id="leergeld-body">${leergeldRijenHtml(alleLeerlingen, groepNaam, groepJaarTotaal)}</tbody>
+      </table>
+    </section>
   `;
 
   // --- Interactie ---------------------------------------------------------
@@ -135,6 +212,10 @@ export async function renderOverzicht(root) {
       }
       const cel = root.querySelector(`[data-groep-totaal="${g.id}"]`);
       if (cel) cel.textContent = euro.format(groepTotaal);
+      // Leergeld-bedragen van deze groep live meelaten lopen
+      root
+        .querySelectorAll(`[data-leergeld-groep="${g.id}"]`)
+        .forEach((el) => (el.textContent = euro.format(groepTotaal)));
       eindtotaal += groepTotaal;
     }
   }
@@ -194,5 +275,48 @@ export async function renderOverzicht(root) {
         .querySelectorAll(`[data-col="${maand}"]`)
         .forEach((el) => el.classList.toggle('ingeklapt', !nuDicht));
     });
+  });
+
+  // --- Leergeld: zoeken en koppelen --------------------------------------
+  const zoek = root.querySelector('#leergeld-zoek');
+  const resultaten = root.querySelector('#zoek-resultaten');
+
+  zoek.addEventListener('input', () => {
+    const q = zoek.value.trim().toLowerCase();
+    if (!q) {
+      resultaten.hidden = true;
+      resultaten.innerHTML = '';
+      return;
+    }
+    const treffers = alleLeerlingen
+      .filter((l) => !l.leergeld)
+      .filter((l) => `${l.voornaam} ${l.achternaam}`.toLowerCase().includes(q))
+      .slice(0, 8);
+
+    resultaten.innerHTML = treffers.length
+      ? treffers
+          .map(
+            (l) => `<button class="zoek-item" data-koppel="${l.id}">
+              <span>${escapeHtml(pseudoniem(l.voornaam, l.achternaam))}</span>
+              <span class="muted">${escapeHtml(groepNaam.get(l.groep_id) || '')}</span>
+            </button>`
+          )
+          .join('')
+      : '<div class="zoek-leeg">Geen leerlingen gevonden.</div>';
+    resultaten.hidden = false;
+  });
+
+  resultaten.addEventListener('click', async (e) => {
+    const btn = e.target.closest('[data-koppel]');
+    if (!btn) return;
+    await updateLeergeld(btn.dataset.koppel, true);
+    await renderOverzicht(root);
+  });
+
+  root.querySelector('#leergeld-body').addEventListener('click', async (e) => {
+    const btn = e.target.closest('[data-ontkoppel]');
+    if (!btn) return;
+    await updateLeergeld(btn.dataset.ontkoppel, false);
+    await renderOverzicht(root);
   });
 }

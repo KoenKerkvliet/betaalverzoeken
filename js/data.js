@@ -133,12 +133,26 @@ export async function upsertTsoDagen(groep_id, maand, dagen) {
 
 // --- Leerlingen (naam versleuteld) ----------------------------------------
 
-export async function getLeerlingen(groep_id) {
+// groep mag een id (string) of een lijst id's (array) zijn, of leeg (alles).
+export async function getLeerlingen(groep) {
   let q = supabase.from('leerlingen').select('*');
-  if (groep_id) q = q.eq('groep_id', groep_id);
+  if (Array.isArray(groep)) {
+    if (!groep.length) return [];
+    q = q.in('groep_id', groep);
+  } else if (groep) {
+    q = q.eq('groep_id', groep);
+  }
   const { data, error } = await q;
   if (error) throw error;
   return data ?? [];
+}
+
+export async function updateLeergeld(id, waarde) {
+  const { error } = await supabase
+    .from('leerlingen')
+    .update({ leergeld: waarde })
+    .eq('id', id);
+  if (error) throw error;
 }
 
 export async function insertLeerlingen(rows) {

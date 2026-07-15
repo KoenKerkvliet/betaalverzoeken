@@ -378,6 +378,116 @@ body {
 .cel.ingeklapt .cel-inhoud { display: none; }
 .maand.ingeklapt .maand-kop { justify-content: center; width: 100%; }
 
+/* Kop met drie-puntjes-menu */
+.hoek-inhoud {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.kebab {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  color: var(--tekst-zacht);
+  font-size: 16px;
+  line-height: 1;
+  padding: 2px 5px;
+  border-radius: 5px;
+}
+.kebab:hover { background: #eef0f4; color: var(--tekst); }
+
+.popover {
+  position: fixed;
+  z-index: 50;
+  width: 232px;
+  background: var(--wit);
+  border: 1px solid var(--rand);
+  border-radius: 10px;
+  box-shadow: 0 10px 34px rgba(0, 0, 0, 0.14);
+  padding: 14px;
+}
+.popover-form { display: flex; flex-direction: column; gap: 8px; }
+.popover-form strong { font-size: 13px; }
+.popover-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--tekst-zacht);
+}
+.popover-form input {
+  padding: 7px 9px;
+  border: 1px solid var(--rand);
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: 14px;
+}
+.popover-form input:focus { outline: 2px solid var(--paars-licht); border-color: var(--paars); }
+
+/* Leergeld-leerlingen: zacht oranje + greyed op de groepspagina */
+.leergeld-rij .groep-cel,
+.leergeld-rij .totaal-cel,
+.leergeld-rij .cel { background: #fff7ed !important; color: #c2915b; }
+.leergeld-rij .leeg { color: #e4c9a6; }
+.leergeld-badge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #b45309;
+  background: #ffedd5;
+  padding: 1px 6px;
+  border-radius: 999px;
+  margin-left: 6px;
+}
+
+/* Leergeld-sectie op het overzicht */
+.leergeld-sectie { margin-top: 24px; max-width: 560px; }
+.leergeld-zoek { position: relative; max-width: 360px; margin: 6px 0 16px; }
+.leergeld-zoek input {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--rand);
+  border-radius: 8px;
+  font-family: inherit;
+  font-size: 14px;
+}
+.leergeld-zoek input:focus { outline: 2px solid var(--paars-licht); border-color: var(--paars); }
+.zoek-resultaten {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 20;
+  background: var(--wit);
+  border: 1px solid var(--rand);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
+  margin-top: 4px;
+  max-height: 280px;
+  overflow-y: auto;
+}
+.zoek-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: transparent;
+  padding: 8px 12px;
+  font-family: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+.zoek-item:hover { background: var(--paars-licht); }
+.zoek-leeg { padding: 10px 12px; color: var(--tekst-zacht); font-size: 13px; }
+.leergeld-tabel td:last-child, .leergeld-tabel th:last-child { width: 30px; text-align: right; }
+
 /* Groepspagina: bedrag-matrix */
 .bedrag-cel {
   padding: 4px 12px;

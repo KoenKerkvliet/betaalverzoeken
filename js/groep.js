@@ -46,19 +46,18 @@ export async function renderGroep(root, id) {
   };
 
   // Leerlingen ophalen en ontsleutelen
-  const rijen = await getLeerlingen(id);
+  const rijenData = await getLeerlingen(id);
   const leerlingen = [];
-  for (const r of rijen) {
+  for (const r of rijenData) {
     try {
       const { v, a } = JSON.parse(await decryptText(r.enc_naam, r.iv));
-      leerlingen.push({ id: r.id, voornaam: v, achternaam: a });
+      leerlingen.push({ id: r.id, voornaam: v, achternaam: a, leergeld: r.leergeld });
     } catch {
-      leerlingen.push({ id: r.id, voornaam: '⚠︎ onleesbaar', achternaam: '' });
+      leerlingen.push({ id: r.id, voornaam: '⚠︎ onleesbaar', achternaam: '', leergeld: r.leergeld });
     }
   }
   leerlingen.sort((x, y) => x.voornaam.localeCompare(y.voornaam, 'nl'));
 
-  // Jaartotaal per leerling (gelijk voor de hele groep)
   let jaarTotaal = 0;
   for (let m = 1; m <= MAANDEN.length; m++) jaarTotaal += maandBedrag(m) ?? 0;
 
@@ -72,10 +71,12 @@ export async function renderGroep(root, id) {
   const leerlingRijen = leerlingen
     .map(
       (l) => `
-      <tr>
+      <tr class="${l.leergeld ? 'leergeld-rij' : ''}">
         <th class="groep-cel" scope="row">
           <div class="leerling-cel">
-            <span>${pseudoniem(l.voornaam, l.achternaam)}</span>
+            <span>${pseudoniem(l.voornaam, l.achternaam)}${
+        l.leergeld ? ' <span class="leergeld-badge">Leergeld</span>' : ''
+      }</span>
             <button class="mini-x" data-del="${l.id}" title="Leerling verwijderen">✕</button>
           </div>
         </th>
@@ -95,7 +96,12 @@ export async function renderGroep(root, id) {
       <table class="overzicht-tabel">
         <thead>
           <tr>
-            <th class="hoek">Leerling</th>
+            <th class="hoek">
+              <div class="hoek-inhoud">
+                <span>Leerling</span>
+                <button class="kebab" id="kebab" title="Leerling toevoegen" aria-label="Menu">⋮</button>
+              </div>
+            </th>
             ${maandKoppen}
             <th class="totaal-kop">Totaal</th>
           </tr>
@@ -103,24 +109,46 @@ export async function renderGroep(root, id) {
         <tbody>
           ${
             leerlingRijen ||
-            `<tr><td class="cel" colspan="${MAANDEN.length + 2}" style="text-align:left;padding:14px">Nog geen leerlingen. Voeg toe via <a href="#/import">EDEX</a> of hieronder.</td></tr>`
+            `<tr><td class="cel" colspan="${MAANDEN.length + 2}" style="text-align:left;padding:14px">Nog geen leerlingen. Voeg toe via de ⋮ hierboven of via <a href="#/import">EDEX</a>.</td></tr>`
           }
         </tbody>
       </table>
     </div>
 
-    <form id="leerling-form" class="inline-form" style="margin-top:16px">
-      <label>Voornaam
-        <input type="text" id="voornaam" required maxlength="60" placeholder="bijv. Sanne" />
-      </label>
-      <label>Achternaam
-        <input type="text" id="achternaam" maxlength="60" placeholder="bijv. de Vries" />
-      </label>
-      <button type="submit" class="btn btn-primary">Leerling toevoegen</button>
-    </form>
+    <div class="popover" id="add-popover" hidden>
+      <form id="leerling-form" class="popover-form">
+        <strong>Leerling toevoegen</strong>
+        <label>Voornaam
+          <input type="text" id="voornaam" required maxlength="60" placeholder="bijv. Sanne" />
+        </label>
+        <label>Achternaam
+          <input type="text" id="achternaam" maxlength="60" placeholder="bijv. de Vries" />
+        </label>
+        <button type="submit" class="btn btn-primary">Toevoegen</button>
+      </form>
+    </div>
   `;
 
-  // Toevoegen
+  // Dropdown (⋮) voor toevoegen
+  const kebab = root.querySelector('#kebab');
+  const pop = root.querySelector('#add-popover');
+  kebab.addEventListener('click', () => {
+    const r = kebab.getBoundingClientRect();
+    pop.style.top = `${r.bottom + 6}px`;
+    pop.style.left = `${Math.max(12, r.right - 240)}px`;
+    pop.hidden = false;
+    root.querySelector('#voornaam').focus();
+  });
+  pop.addEventListener('focusout', (e) => {
+    if (!pop.contains(e.relatedTarget)) pop.hidden = true;
+  });
+  pop.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      pop.hidden = true;
+      kebab.focus();
+    }
+  });
+
   root.querySelector('#leerling-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const voornaam = root.querySelector('#voornaam').value.trim();
@@ -134,7 +162,7 @@ export async function renderGroep(root, id) {
   // Verwijderen
   root.querySelectorAll('[data-del]').forEach((btn) => {
     btn.addEventListener('click', async () => {
-      const naam = btn.closest('tr').querySelector('.leerling-cel span').textContent;
+      const naam = btn.closest('tr').querySelector('.leerling-cel span').textContent.trim();
       if (window.confirm(`Leerling "${naam}" verwijderen?`)) {
         await deleteLeerling(btn.dataset.del);
         await renderGroep(root, id);
