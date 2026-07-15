@@ -276,6 +276,18 @@ export async function renderGroep(root, id) {
 
     return `
       <div class="menu-sectie">
+        <button type="button" class="menu-kop" data-sectie="naam">Naam wijzigen <span>▾</span></button>
+        <div class="menu-inhoud" data-inhoud="naam" hidden>
+          <label class="menu-veld">Voornaam
+            <input type="text" class="naam-voornaam" maxlength="60" value="${escapeAttr(l.voornaam)}" />
+          </label>
+          <label class="menu-veld">Achternaam
+            <input type="text" class="naam-achternaam" maxlength="60" value="${escapeAttr(l.achternaam)}" />
+          </label>
+          <button type="button" class="btn btn-primary naam-opslaan">Opslaan</button>
+        </div>
+      </div>
+      <div class="menu-sectie">
         <button type="button" class="menu-kop" data-sectie="instroom">Instroom vanaf <span>▾</span></button>
         <div class="menu-inhoud" data-inhoud="instroom" hidden>${instroomOpties}</div>
       </div>
@@ -318,6 +330,21 @@ export async function renderGroep(root, id) {
         inh.hidden = !inh.hidden;
         positioneer();
       });
+    });
+
+    // Naam wijzigen (versleuteld opslaan)
+    menuEl.querySelector('.naam-opslaan').addEventListener('click', async () => {
+      const voornaam = menuEl.querySelector('.naam-voornaam').value.trim();
+      const achternaam = menuEl.querySelector('.naam-achternaam').value.trim();
+      if (!voornaam) return;
+      try {
+        const enc = await encryptText(JSON.stringify({ v: voornaam, a: achternaam }));
+        await updateLeerling(l.id, { enc_naam: enc.ct, iv: enc.iv });
+        sluitMenu();
+        await renderGroep(root, id);
+      } catch (e) {
+        console.error(e);
+      }
     });
 
     // Instroom (radio)

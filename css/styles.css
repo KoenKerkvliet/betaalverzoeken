@@ -661,6 +661,24 @@ body {
   cursor: pointer;
 }
 .menu-optie:hover { background: #f7f7fb; }
+.menu-veld {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--tekst-zacht);
+  padding: 3px 0;
+}
+.menu-veld input {
+  padding: 6px 8px;
+  border: 1px solid var(--rand);
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: 13px;
+}
+.menu-veld input:focus { outline: 2px solid var(--paars-licht); border-color: var(--paars); }
+.naam-opslaan { margin-top: 6px; align-self: flex-start; padding: 6px 14px; }
 .reg-rij { display: flex; flex-direction: column; gap: 2px; padding: 2px 0; }
 .reg-opm {
   width: 100%;
