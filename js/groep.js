@@ -64,9 +64,6 @@ export async function renderGroep(root, id) {
   const betaalMap = new Map();
   for (const b of betalingen) betaalMap.set(`${b.leerling_id}:${b.maand}`, Number(b.bedrag));
 
-  let jaarTotaal = 0;
-  for (let m = 1; m <= MAANDEN.length; m++) jaarTotaal += maandBedrag(m) ?? 0;
-
   const maandKoppen = MAANDEN.map((m) => `<th class="maand">${m}</th>`).join('');
 
   // Cel per leerling per maand: betaald (groen) of nog open (verschuldigd, grijs)
@@ -97,7 +94,6 @@ export async function renderGroep(root, id) {
           </div>
         </th>
         ${cellenVoor(l)}
-        <td class="totaal-cel">${euro.format(jaarTotaal)}</td>
       </tr>`
     )
     .join('');
@@ -121,13 +117,12 @@ export async function renderGroep(root, id) {
               </div>
             </th>
             ${maandKoppen}
-            <th class="totaal-kop">Totaal</th>
           </tr>
         </thead>
         <tbody>
           ${
             leerlingRijen ||
-            `<tr><td class="cel" colspan="${MAANDEN.length + 2}" style="text-align:left;padding:14px">Nog geen leerlingen. Voeg toe via de ⋮ hierboven of via <a href="#/import">EDEX</a>.</td></tr>`
+            `<tr><td class="cel" colspan="${MAANDEN.length + 1}" style="text-align:left;padding:14px">Nog geen leerlingen. Voeg toe via de ⋮ hierboven of via <a href="#/import">EDEX</a>.</td></tr>`
           }
         </tbody>
       </table>
