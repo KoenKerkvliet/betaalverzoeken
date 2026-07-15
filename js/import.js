@@ -308,6 +308,15 @@ function naamSleutel(groep, naam) {
   return `${normaliseer(groep)}|${normaliseer(naam)}`;
 }
 
+// Losse sleutel: groep + eerste woord (voornaam) + laatste woord (achternaam-kern).
+// Negeert tussenvoegsels aan beide kanten.
+function losseSleutel(groep, naam) {
+  const woorden = normaliseer(naam).split(' ').filter(Boolean);
+  const eerste = woorden[0] || '';
+  const laatste = woorden[woorden.length - 1] || '';
+  return `${normaliseer(groep)}|${eerste}|${laatste}`;
+}
+
 // Parset een .xlsx client-side met SheetJS (lazy geladen van de CDN).
 async function parseExport(file) {
   const XLSX = await import('https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs');
@@ -401,12 +410,20 @@ async function verwerkExport(file, root, status) {
   const groepNaam = new Map(groepen.map((g) => [g.id, g.naam]));
 
   // Onze (versleutelde) leerlingen ontsleutelen om op naam+groep te matchen.
+  // Twee sleutels: exact (volledige naam) en los (voornaam + achternaam-kern),
+  // zodat tussenvoegsels aan beide kanten niet uitmaken.
   const leerlingRows = await getLeerlingen(groepen.map((g) => g.id));
-  const naamNaarId = new Map();
+  const exactMap = new Map();
+  const losMap = new Map();
+  const losDubbel = new Set();
   for (const r of leerlingRows) {
     try {
       const { v, a } = JSON.parse(await decryptText(r.enc_naam, r.iv));
-      naamNaarId.set(naamSleutel(groepNaam.get(r.groep_id), `${v} ${a}`), r.id);
+      const groep = groepNaam.get(r.groep_id);
+      exactMap.set(naamSleutel(groep, `${v} ${a}`), r.id);
+      const ls = losseSleutel(groep, `${v} ${a}`);
+      if (losMap.has(ls)) losDubbel.add(ls);
+      else losMap.set(ls, r.id);
     } catch {
       /* onleesbaar — overslaan */
     }
@@ -415,7 +432,11 @@ async function verwerkExport(file, root, status) {
   const betalingen = [];
   const nietGevonden = [];
   for (const row of rows) {
-    const id = naamNaarId.get(naamSleutel(row.groep, row.leerling));
+    let id = exactMap.get(naamSleutel(row.groep, row.leerling));
+    if (!id) {
+      const ls = losseSleutel(row.groep, row.leerling);
+      if (losMap.has(ls) && !losDubbel.has(ls)) id = losMap.get(ls);
+    }
     if (!id) {
       nietGevonden.push(row);
       continue;
