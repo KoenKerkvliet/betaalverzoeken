@@ -222,6 +222,14 @@ export async function deleteBetaling(id) {
   if (error) throw error;
 }
 
+// Openstaand: leerlingen met een of meer €0,00-maanden (server-side, met
+// leergeld/instroom/uitgesloten eruit gefilterd). Bevat maanden + totaalbedrag.
+export async function getOpenstaand(schooljaarId) {
+  const { data, error } = await supabase.rpc('openstaand', { p_schooljaar_id: schooljaarId });
+  if (error) throw error;
+  return data ?? [];
+}
+
 // Schoolbreed totaal per maand (server-side opgeteld, geen 1000-rijen-limiet).
 export async function getBetalingenPerMaand(schooljaarId) {
   const { data, error } = await supabase.rpc('betalingen_per_maand', {

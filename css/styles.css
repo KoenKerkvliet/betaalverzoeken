@@ -492,6 +492,42 @@ body {
 .zoek-item:hover { background: var(--paars-licht); }
 .zoek-leeg { padding: 10px 12px; color: var(--tekst-zacht); font-size: 13px; }
 .leergeld-tabel td:last-child, .leergeld-tabel th:last-child { width: 30px; text-align: right; }
+
+/* Brede secties (even breed als het overzicht erboven) */
+.kaart.breed-sectie { max-width: none; }
+
+/* Inklapbare sectie-kop */
+.sectie-kop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+}
+.sectie-kop h2 { margin: 0; }
+.sectie-kop .chevron { color: var(--tekst-zacht); transition: transform 0.15s; }
+.sectie-kop.dicht .chevron { transform: rotate(-90deg); }
+.sectie-body { margin-top: 6px; }
+
+/* Openstaand-tabel */
+.openstaand-bedrag {
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.openstaand-tabel th:last-child { text-align: right; }
+.openstaand-totaalrij td {
+  border-top: 2px solid var(--rand);
+  font-weight: 700;
+  background: #faf9ff;
+}
 .leergeld-bedrag { white-space: nowrap; }
 .leergeld-bedrag-input {
   width: 82px;

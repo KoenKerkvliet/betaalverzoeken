@@ -177,3 +177,31 @@ as $$
   where g.schooljaar_id = p_schooljaar_id
   group by b.maand;
 $$;
+
+-- Openstaand: leerlingen met €0,00-maanden (ouder moet nog betalen). Filtert
+-- leergeld-leerlingen en vóór-instroom/uitgesloten maanden eruit; geeft per
+-- leerling de niet-betaalde maanden + het openstaande totaalbedrag.
+create or replace function public.openstaand(p_schooljaar_id uuid)
+returns table(leerling_id uuid, groep text, volgorde int, maanden smallint[], totaal numeric)
+language sql
+stable
+as $$
+  select
+    b.leerling_id,
+    g.naam as groep,
+    g.volgorde,
+    array_agg(b.maand order by b.maand) as maanden,
+    sum(td.dagen * sj.tso_dagprijs)::numeric as totaal
+  from public.betalingen b
+  join public.leerlingen l on l.id = b.leerling_id
+  join public.groepen g on g.id = l.groep_id
+  join public.schooljaren sj on sj.id = g.schooljaar_id
+  join public.tso_dagen td
+    on td.groep_id = g.id and td.maand = b.maand and td.dagen > 0
+  where b.bedrag = 0
+    and g.schooljaar_id = p_schooljaar_id
+    and l.leergeld = false
+    and (l.instroom_maand is null or b.maand >= l.instroom_maand)
+    and not (b.maand = any(coalesce(l.uitgesloten_maanden, '{}'::smallint[])))
+  group by b.leerling_id, g.naam, g.volgorde;
+$$;

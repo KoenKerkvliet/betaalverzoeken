@@ -10,6 +10,7 @@ import {
   getOvergemaakt,
   updateOvergemaakt,
   deleteOvergemaakt,
+  getOpenstaand,
 } from './data.js';
 import { parseBedrag } from './util.js';
 import { decryptText, isUnlocked } from './crypto.js';
@@ -35,6 +36,28 @@ function ogRijHtml(e) {
     <input type="text" class="og-opm-input" placeholder="opmerking" value="${escapeHtml(e.opmerking || '')}" />
     <button type="button" class="og-del mini-x" title="Verwijderen">✕</button>
   </div>`;
+}
+
+function openstaandRijenHtml(rijen, totaal) {
+  if (!rijen.length) {
+    return `<tr><td colspan="4" class="muted" style="padding:12px">Geen openstaande bedragen — iedereen heeft betaald. 🎉</td></tr>`;
+  }
+  const body = rijen
+    .map(
+      (r) => `
+      <tr>
+        <td>${escapeHtml(pseudoniem(r.leerling.voornaam, r.leerling.achternaam))}</td>
+        <td>${escapeHtml(r.groep)}</td>
+        <td>${r.maanden.map((m) => MAANDEN[m - 1]).join(', ')}</td>
+        <td class="openstaand-bedrag">${euro.format(Number(r.totaal))}</td>
+      </tr>`
+    )
+    .join('');
+  return `${body}
+    <tr class="openstaand-totaalrij">
+      <td colspan="3">Totaal openstaand · ${rijen.length} leerling(en)</td>
+      <td class="openstaand-bedrag">${euro.format(totaal)}</td>
+    </tr>`;
 }
 
 function leergeldRijenHtml(leerlingen, groepNaam, groepJaarTotaal) {
@@ -71,6 +94,13 @@ function leesIngeklapt() {
 
 function bewaarIngeklapt(set) {
   localStorage.setItem(OPSLAG_SLEUTEL, JSON.stringify([...set]));
+}
+
+function leergeldIngeklapt() {
+  return localStorage.getItem('leergeld_ingeklapt') === '1';
+}
+function setLeergeldIngeklapt(v) {
+  localStorage.setItem('leergeld_ingeklapt', v ? '1' : '0');
 }
 
 export async function renderOverzicht(root) {
@@ -145,6 +175,17 @@ export async function renderOverzicht(root) {
     (overgemaaktPerMaand[maand] || []).reduce((a, e) => a + Number(e.bedrag), 0);
   const overgemaaktTotaal = () =>
     Object.keys(overgemaaktPerMaand).reduce((a, m) => a + overgemaaktSom(Number(m)), 0);
+
+  // Openstaand: leerlingen met €0,00-maanden, met de ontsleutelde namen.
+  const naamMap = new Map(alleLeerlingen.map((l) => [l.id, l]));
+  const openstaandRijen = (await getOpenstaand(schooljaar.id))
+    .map((r) => ({ ...r, leerling: naamMap.get(r.leerling_id) }))
+    .filter((r) => r.leerling)
+    .sort(
+      (a, b) =>
+        a.volgorde - b.volgorde || a.leerling.voornaam.localeCompare(b.leerling.voornaam, 'nl')
+    );
+  const openstaandTotaal = openstaandRijen.reduce((s, r) => s + Number(r.totaal), 0);
 
   const ingeklapt = leesIngeklapt();
 
@@ -248,18 +289,31 @@ export async function renderOverzicht(root) {
     </div>
     <p id="save-status" class="save-status" aria-live="polite"></p>
 
-    <section class="kaart leergeld-sectie">
-      <h2>Leergeld</h2>
-      <p class="muted">Leerlingen waarvan Stichting Leergeld de kosten vergoedt. Zij doen niet mee met de maandelijkse betalingen en staan op de groepspagina zacht oranje gemarkeerd.</p>
+    <section class="kaart breed-sectie leergeld-sectie">
+      <button type="button" class="sectie-kop${leergeldIngeklapt() ? ' dicht' : ''}" id="leergeld-kop">
+        <h2>Leergeld</h2><span class="chevron">▾</span>
+      </button>
+      <div class="sectie-body" id="leergeld-inhoud"${leergeldIngeklapt() ? ' hidden' : ''}>
+        <p class="muted">Leerlingen waarvan Stichting Leergeld de kosten vergoedt. Zij doen niet mee met de maandelijkse betalingen en staan op de groepspagina zacht oranje gemarkeerd.</p>
 
-      <div class="leergeld-zoek">
-        <input type="text" id="leergeld-zoek" placeholder="Zoek een leerling om te koppelen…" autocomplete="off" />
-        <div class="zoek-resultaten" id="zoek-resultaten" hidden></div>
+        <div class="leergeld-zoek">
+          <input type="text" id="leergeld-zoek" placeholder="Zoek een leerling om te koppelen…" autocomplete="off" />
+          <div class="zoek-resultaten" id="zoek-resultaten" hidden></div>
+        </div>
+
+        <table class="import-tabel leergeld-tabel">
+          <thead><tr><th>Naam</th><th>Groep</th><th>Bedrag</th><th></th></tr></thead>
+          <tbody id="leergeld-body">${leergeldRijenHtml(alleLeerlingen, groepNaam, groepJaarTotaal)}</tbody>
+        </table>
       </div>
+    </section>
 
-      <table class="import-tabel leergeld-tabel">
-        <thead><tr><th>Naam</th><th>Groep</th><th>Bedrag</th><th></th></tr></thead>
-        <tbody id="leergeld-body">${leergeldRijenHtml(alleLeerlingen, groepNaam, groepJaarTotaal)}</tbody>
+    <section class="kaart breed-sectie">
+      <h2>Openstaand</h2>
+      <p class="muted">Leerlingen met nog niet betaalde maanden (€0,00) — ouder moet nog betalen. Leergeld-leerlingen en uitgesloten/vóór-instroom-maanden tellen niet mee.</p>
+      <table class="import-tabel openstaand-tabel">
+        <thead><tr><th>Naam</th><th>Groep</th><th>Niet betaald</th><th>Openstaand</th></tr></thead>
+        <tbody>${openstaandRijenHtml(openstaandRijen, openstaandTotaal)}</tbody>
       </table>
     </section>
   `;
@@ -378,6 +432,16 @@ export async function renderOverzicht(root) {
         .querySelectorAll(`[data-col="${maand}"]`)
         .forEach((el) => el.classList.toggle('ingeklapt', !nuDicht));
     });
+  });
+
+  // --- Leergeld: in/uitklappen -------------------------------------------
+  const lgKop = root.querySelector('#leergeld-kop');
+  const lgInhoud = root.querySelector('#leergeld-inhoud');
+  lgKop.addEventListener('click', () => {
+    const dicht = !lgInhoud.hidden;
+    lgInhoud.hidden = dicht;
+    lgKop.classList.toggle('dicht', dicht);
+    setLeergeldIngeklapt(dicht);
   });
 
   // --- Leergeld: zoeken en koppelen --------------------------------------
