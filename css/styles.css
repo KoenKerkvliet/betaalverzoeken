@@ -180,6 +180,31 @@ body {
   width: 100%;
 }
 
+/* Subtiele schooljaar-switcher onderin de sidebar */
+.schooljaar-kiezer {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 12px;
+  padding: 8px 12px 0;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--tekst-zacht);
+}
+.schooljaar-kiezer select {
+  font-family: inherit;
+  font-size: 13px;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--tekst);
+  padding: 5px 6px;
+  border: 1px solid var(--rand);
+  border-radius: 6px;
+  background: var(--wit);
+  cursor: pointer;
+}
+
 .content { flex: 1; padding: 28px 32px; min-width: 0; }
 .loader { color: var(--tekst-zacht); padding: 40px 0; }
 

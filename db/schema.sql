@@ -20,12 +20,24 @@ create table if not exists public.instellingen (
 insert into public.instellingen (id) values (1)
   on conflict (id) do nothing;
 
--- --- Groepen ---------------------------------------------------------------
+-- --- Schooljaren -----------------------------------------------------------
+-- Elk schooljaar heeft eigen groepen en een eigen dagprijs, zodat een
+-- prijswijziging in een nieuw jaar de historie niet verandert.
+create table if not exists public.schooljaren (
+  id           uuid primary key default gen_random_uuid(),
+  naam         text not null unique,
+  tso_dagprijs numeric(6,2) not null default 1.75,
+  created_at   timestamptz not null default now()
+);
+
+-- --- Groepen (per schooljaar) ---------------------------------------------
 create table if not exists public.groepen (
-  id         uuid primary key default gen_random_uuid(),
-  naam       text not null,
-  volgorde   integer not null default 0,
-  created_at timestamptz not null default now()
+  id           uuid primary key default gen_random_uuid(),
+  naam         text not null,
+  volgorde     integer not null default 0,
+  schooljaar_id uuid not null references public.schooljaren(id) on delete cascade,
+  created_at   timestamptz not null default now(),
+  unique (schooljaar_id, naam)
 );
 
 -- --- TSO-dagen per groep per maand ----------------------------------------
@@ -57,6 +69,7 @@ create index if not exists leerlingen_groep_idx on public.leerlingen(groep_id);
 -- ===========================================================================
 
 alter table public.instellingen enable row level security;
+alter table public.schooljaren  enable row level security;
 alter table public.groepen      enable row level security;
 alter table public.tso_dagen    enable row level security;
 alter table public.leerlingen   enable row level security;
@@ -81,6 +94,11 @@ begin
   -- leerlingen
   if not exists (select 1 from pg_policies where tablename = 'leerlingen' and policyname = 'ingelogd_alles') then
     create policy ingelogd_alles on public.leerlingen
+      for all to authenticated using (true) with check (true);
+  end if;
+  -- schooljaren
+  if not exists (select 1 from pg_policies where tablename = 'schooljaren' and policyname = 'ingelogd_alles') then
+    create policy ingelogd_alles on public.schooljaren
       for all to authenticated using (true) with check (true);
   end if;
 end $$;

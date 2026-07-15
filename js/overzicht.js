@@ -1,6 +1,7 @@
 import { euro } from './supabaseClient.js';
 import { MAANDEN, MAANDEN_KORT } from './config.js';
-import { getInstellingen, getGroepen, getTsoDagen, upsertTsoDagen } from './data.js';
+import { getGroepen, getTsoDagen, upsertTsoDagen } from './data.js';
+import { getHuidigSchooljaar } from './state.js';
 
 const OPSLAG_SLEUTEL = 'overzicht_ingeklapte_maanden';
 
@@ -17,13 +18,10 @@ function bewaarIngeklapt(set) {
 }
 
 export async function renderOverzicht(root) {
-  const [instellingen, groepen, dagen] = await Promise.all([
-    getInstellingen(),
-    getGroepen(),
-    getTsoDagen(),
-  ]);
-
-  const dagprijs = Number(instellingen.tso_dagprijs) || 0;
+  const schooljaar = getHuidigSchooljaar();
+  const dagprijs = Number(schooljaar?.tso_dagprijs) || 0;
+  const groepen = schooljaar ? await getGroepen(schooljaar.id) : [];
+  const dagen = await getTsoDagen(groepen.map((g) => g.id));
 
   // Snelle opzoektabel: "groepId:maand" -> aantal dagen
   const kaart = new Map();
@@ -33,13 +31,11 @@ export async function renderOverzicht(root) {
     root.innerHTML = `
       <header class="page-head">
         <h1>Overzicht</h1>
-        <p class="muted">Schooljaar ${instellingen.schooljaar ?? ''} · €${dagprijs
-      .toFixed(2)
-      .replace('.', ',')} per TSO-dag</p>
+        <p class="muted">${schooljaar ? 'Schooljaar ' + schooljaar.naam : 'Nog geen schooljaar'}</p>
       </header>
       <div class="empty-state">
-        <p>Er zijn nog geen groepen. Maak eerst groepen aan bij
-        <a href="#/instellingen">Instellingen</a>.</p>
+        <p>Er zijn nog geen groepen voor dit schooljaar. Ga naar
+        <a href="#/import">Importeren</a> om een EDEX-bestand in te lezen.</p>
       </div>`;
     return;
   }
@@ -96,7 +92,7 @@ export async function renderOverzicht(root) {
   root.innerHTML = `
     <header class="page-head">
       <h1>Overzicht</h1>
-      <p class="muted">Schooljaar ${instellingen.schooljaar ?? ''} · €${dagprijs
+      <p class="muted">Schooljaar ${schooljaar.naam} · €${dagprijs
     .toFixed(2)
     .replace('.', ',')} per TSO-dag · vul per groep en maand het aantal TSO-dagen in</p>
     </header>

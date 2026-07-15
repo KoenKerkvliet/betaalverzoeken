@@ -1,27 +1,33 @@
 // EDEX-import — VOLLEDIG in de browser.
 //
 // Privacy: het XML-bestand wordt hier lokaal ingelezen en geparsed. Alleen
-// voornaam, achternaam en groep worden eruit gehaald. Leerkrachten en alle
-// overige velden worden genegeerd en verlaten de browser niet. Bij opslaan
-// wordt de naam client-side versleuteld; Supabase ziet alleen ciphertext.
+// schooljaar, voornaam, achternaam en groep worden eruit gehaald. Leerkrachten
+// en alle overige velden worden genegeerd en verlaten de browser niet. Bij
+// opslaan wordt de naam client-side versleuteld; Supabase ziet alleen ciphertext.
 
-import { getGroepen, getLeerlingen, insertLeerlingen } from './data.js';
+import {
+  findOrCreateSchooljaar,
+  findOrCreateGroep,
+  getLeerlingen,
+  insertLeerlingen,
+} from './data.js';
 import { encryptText, decryptText, isUnlocked } from './crypto.js';
 
-// Leest en parset een EDEX-XML-string. Geeft { groepen, leerlingen, fouten }.
+// Leest en parset een EDEX-XML-string.
 export function parseEdex(xmlTekst) {
   const doc = new DOMParser().parseFromString(xmlTekst, 'application/xml');
 
-  const parseFout = doc.querySelector('parsererror');
-  if (parseFout) {
+  if (doc.querySelector('parsererror')) {
     return { fout: 'Dit lijkt geen geldig XML-bestand te zijn.' };
   }
   if (doc.documentElement.nodeName !== 'EDEX') {
     return { fout: 'Dit is geen EDEX-bestand (verwacht een <EDEX>-element).' };
   }
 
-  // Groep-key -> naam. Let op: scope naar EDEX > groepen, anders matcht ook
-  // het <groepen>-blok binnen een leerkracht (die lege groep-refs bevat).
+  const schooljaar = doc.querySelector('EDEX > school > schooljaar')?.textContent?.trim() || '';
+
+  // Groep-key -> naam. Scope naar EDEX > groepen, anders matcht ook het
+  // <groepen>-blok binnen een leerkracht (die lege groep-refs bevat).
   const groepNaam = new Map();
   doc.querySelectorAll('EDEX > groepen > groep').forEach((g) => {
     const key = g.getAttribute('key');
@@ -45,24 +51,24 @@ export function parseEdex(xmlTekst) {
   });
 
   return {
-    groepen: [...groepNaam.values()],
+    schooljaar,
+    groepen: [...groepNaam.values()], // in bestandsvolgorde
     leerlingen,
   };
 }
 
-export async function renderImport(root) {
+export async function renderImport(root, onKlaar) {
   root.innerHTML = `
     <header class="page-head">
       <h1>Importeren (EDEX)</h1>
-      <p class="muted">Lees een EDEX-bestand (.xml) in om leerlingen en groepen op te halen.</p>
+      <p class="muted">Lees een EDEX-bestand (.xml) in. Groepen en leerlingen worden aan het schooljaar uit het bestand gekoppeld.</p>
     </header>
 
     <section class="kaart">
       <div class="privacy-note">
         🔒 Dit bestand wordt <strong>volledig in je browser</strong> verwerkt. Alleen
-        <strong>voornaam, achternaam en groep</strong> worden eruit gelezen. Leerkrachten en
-        alle overige gegevens worden genegeerd en verlaten je computer niet — er gaat niets
-        naar de server.
+        <strong>schooljaar, voornaam, achternaam en groep</strong> worden eruit gelezen.
+        Leerkrachten en alle overige gegevens worden genegeerd en verlaten je computer niet.
       </div>
 
       <div class="inline-form">
@@ -99,27 +105,32 @@ export async function renderImport(root) {
       return;
     }
 
-    const { fout, leerlingen, groepen } = parseEdex(tekst);
-    if (fout) {
+    const parse = parseEdex(tekst);
+    if (parse.fout) {
       status.className = 'msg error';
-      status.textContent = fout;
+      status.textContent = parse.fout;
       return;
     }
-
-    if (!leerlingen.length) {
+    if (!parse.schooljaar) {
+      status.className = 'msg error';
+      status.textContent = 'Geen schooljaar gevonden in dit bestand.';
+      return;
+    }
+    if (!parse.groepen.length && !parse.leerlingen.length) {
       status.className = 'msg info';
-      status.textContent = 'Geen leerlingen gevonden in dit bestand.';
+      status.textContent = 'Geen groepen of leerlingen gevonden in dit bestand.';
       return;
     }
 
-    toonResultaat(resultaat, leerlingen, groepen);
+    toonResultaat(resultaat, parse, onKlaar);
     status.className = 'msg success';
-    status.textContent = `${leerlingen.length} leerling(en) gevonden in ${groepen.length} groep(en).`;
+    status.textContent = `Schooljaar ${parse.schooljaar} · ${parse.leerlingen.length} leerling(en) in ${parse.groepen.length} groep(en).`;
   });
 }
 
-function toonResultaat(root, leerlingen, groepen) {
-  // Groepeer per groep, gesorteerd
+function toonResultaat(root, parse, onKlaar) {
+  const { leerlingen } = parse;
+
   const perGroep = new Map();
   for (const l of leerlingen) {
     if (!perGroep.has(l.groep)) perGroep.set(l.groep, []);
@@ -136,13 +147,9 @@ function toonResultaat(root, leerlingen, groepen) {
         .sort((a, b) => a.voornaam.localeCompare(b.voornaam, 'nl'))
         .map(
           (l) => `
-          <tr>
-            <td>${escapeHtml(l.voornaam)}</td>
-            <td>${escapeHtml(l.achternaam)}</td>
-          </tr>`
+          <tr><td>${escapeHtml(l.voornaam)}</td><td>${escapeHtml(l.achternaam)}</td></tr>`
         )
         .join('');
-
       return `
         <div class="kaart">
           <h2>${escapeHtml(groep)} <span class="muted">· ${perGroep.get(groep).length}</span></h2>
@@ -156,7 +163,9 @@ function toonResultaat(root, leerlingen, groepen) {
 
   root.innerHTML = `
     <div class="kaart">
-      <p class="muted" style="margin-top:0">Controleer de gegevens hieronder en sla ze daarna versleuteld op in het portaal. Al bestaande leerlingen (zelfde voornaam, achternaam én groep) worden overgeslagen.</p>
+      <p class="muted" style="margin-top:0">Controleer de gegevens en sla ze daarna versleuteld op onder schooljaar <strong>${escapeHtml(
+        parse.schooljaar
+      )}</strong>. Bestaande groepen/leerlingen worden niet dubbel toegevoegd.</p>
       <button class="btn btn-primary" id="opslaan-btn">Versleuteld opslaan in portaal</button>
       <p id="opslaan-status" class="msg"></p>
     </div>
@@ -165,10 +174,10 @@ function toonResultaat(root, leerlingen, groepen) {
 
   const btn = root.querySelector('#opslaan-btn');
   const status = root.querySelector('#opslaan-status');
-  btn.addEventListener('click', () => slaLeerlingenOp(leerlingen, btn, status));
+  btn.addEventListener('click', () => slaImportOp(parse, btn, status, onKlaar));
 }
 
-async function slaLeerlingenOp(leerlingen, btn, status) {
+async function slaImportOp(parse, btn, status, onKlaar) {
   if (!isUnlocked()) {
     status.className = 'msg error';
     status.textContent = 'De encryptie is niet ontgrendeld. Herlaad de pagina en voer je passphrase in.';
@@ -180,10 +189,17 @@ async function slaLeerlingenOp(leerlingen, btn, status) {
   status.textContent = '';
 
   try {
-    const groepen = await getGroepen();
-    const naamNaarId = new Map(groepen.map((g) => [g.naam.toLowerCase(), g.id]));
+    // 1. Schooljaar vinden of aanmaken
+    const schooljaar = await findOrCreateSchooljaar(parse.schooljaar);
 
-    // Bestaande leerlingen ontsleutelen voor ontdubbeling
+    // 2. Groepen vinden of aanmaken (in bestandsvolgorde) binnen dit schooljaar
+    const naamNaarId = new Map();
+    for (let i = 0; i < parse.groepen.length; i++) {
+      const g = await findOrCreateGroep(parse.groepen[i], i, schooljaar.id);
+      naamNaarId.set(g.naam.toLowerCase(), g.id);
+    }
+
+    // 3. Bestaande leerlingen ontsleutelen voor ontdubbeling
     const bestaand = await getLeerlingen();
     const bestaandSet = new Set();
     for (const b of bestaand) {
@@ -191,14 +207,15 @@ async function slaLeerlingenOp(leerlingen, btn, status) {
         const { v, a } = JSON.parse(await decryptText(b.enc_naam, b.iv));
         bestaandSet.add(sleutel(b.groep_id, v, a));
       } catch {
-        /* onleesbaar record — overslaan bij vergelijking */
+        /* onleesbaar record — overslaan */
       }
     }
 
+    // 4. Nieuwe leerlingen versleuteld opslaan
     const toevoegen = [];
     let geenGroep = 0;
     let dubbel = 0;
-    for (const l of leerlingen) {
+    for (const l of parse.leerlingen) {
       const gid = naamNaarId.get(l.groep.toLowerCase());
       if (!gid) {
         geenGroep++;
@@ -216,13 +233,14 @@ async function slaLeerlingenOp(leerlingen, btn, status) {
 
     await insertLeerlingen(toevoegen);
 
-    const delen = [`${toevoegen.length} toegevoegd`];
-    if (dubbel) delen.push(`${dubbel} al aanwezig (overgeslagen)`);
-    if (geenGroep) delen.push(`${geenGroep} zonder bekende groep (overgeslagen)`);
+    const delen = [`Schooljaar ${schooljaar.naam}`, `${toevoegen.length} leerling(en) toegevoegd`];
+    if (dubbel) delen.push(`${dubbel} al aanwezig`);
+    if (geenGroep) delen.push(`${geenGroep} zonder groep overgeslagen`);
     status.className = 'msg success';
     status.textContent = delen.join(' · ');
-    btn.textContent = 'Opnieuw opslaan';
-    btn.disabled = false;
+    btn.textContent = 'Klaar';
+
+    if (typeof onKlaar === 'function') await onKlaar(schooljaar.id);
   } catch (err) {
     console.error(err);
     status.className = 'msg error';

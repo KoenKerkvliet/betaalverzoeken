@@ -1,29 +1,33 @@
-import {
-  getInstellingen,
-  saveDagprijs,
-  getGroepen,
-  addGroep,
-  renameGroep,
-  deleteGroep,
-} from './data.js';
+import { getGroepen, saveDagprijsSchooljaar, renameGroep, deleteGroep } from './data.js';
+import { getHuidigSchooljaar } from './state.js';
 
 export async function renderInstellingen(root) {
-  const [instellingen, groepen] = await Promise.all([getInstellingen(), getGroepen()]);
+  const schooljaar = getHuidigSchooljaar();
+
+  if (!schooljaar) {
+    root.innerHTML = `
+      <header class="page-head"><h1>Instellingen</h1></header>
+      <div class="empty-state">Er is nog geen schooljaar. Ga naar
+        <a href="#/import">Importeren</a> om een EDEX-bestand in te lezen.</div>`;
+    return;
+  }
+
+  const groepen = await getGroepen(schooljaar.id);
 
   root.innerHTML = `
     <header class="page-head">
       <h1>Instellingen</h1>
-      <p class="muted">Beheer de TSO-dagprijs en je groepen</p>
+      <p class="muted">Schooljaar ${schooljaar.naam}</p>
     </header>
 
     <section class="kaart">
       <h2>TSO-kosten</h2>
-      <p class="muted">Kosten voor één TSO-dag. Dit bedrag wordt gebruikt om per groep en maand het te betalen bedrag te berekenen.</p>
+      <p class="muted">Kosten voor één TSO-dag in schooljaar ${schooljaar.naam}. Elk schooljaar heeft een eigen prijs.</p>
       <form id="prijs-form" class="inline-form">
         <label>
           Prijs per dag (€)
           <input type="number" id="dagprijs" min="0" step="0.01" value="${Number(
-            instellingen.tso_dagprijs
+            schooljaar.tso_dagprijs
           ).toFixed(2)}" required />
         </label>
         <button type="submit" class="btn btn-primary">Opslaan</button>
@@ -33,30 +37,23 @@ export async function renderInstellingen(root) {
 
     <section class="kaart">
       <h2>Groepen</h2>
-      <p class="muted">Deze groepen verschijnen (van boven naar beneden) in het overzicht.</p>
+      <p class="muted">Groepen komen uit de EDEX-import (<a href="#/import">Importeren</a>). Je kunt ze hier hernoemen of verwijderen.</p>
 
       <ul class="groep-lijst" id="groep-lijst">
-        ${groepen.map(groepRij).join('') || '<li class="muted">Nog geen groepen.</li>'}
+        ${groepen.map(groepRij).join('') || '<li class="muted">Nog geen groepen. Importeer een EDEX-bestand.</li>'}
       </ul>
-
-      <form id="groep-form" class="inline-form">
-        <label>
-          Nieuwe groep
-          <input type="text" id="nieuwe-groep" placeholder="bijv. 1a" required maxlength="20" />
-        </label>
-        <button type="submit" class="btn btn-primary">Toevoegen</button>
-      </form>
     </section>
   `;
 
-  // --- Dagprijs -----------------------------------------------------------
+  // --- Dagprijs (per schooljaar) -----------------------------------------
   const prijsForm = root.querySelector('#prijs-form');
   const prijsStatus = root.querySelector('#prijs-status');
   prijsForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     const prijs = Number(root.querySelector('#dagprijs').value);
     try {
-      await saveDagprijs(prijs);
+      await saveDagprijsSchooljaar(schooljaar.id, prijs);
+      schooljaar.tso_dagprijs = prijs; // lokaal bijwerken
       prijsStatus.textContent = 'Opgeslagen ✓';
       prijsStatus.classList.add('zichtbaar');
       setTimeout(() => prijsStatus.classList.remove('zichtbaar'), 1500);
@@ -64,18 +61,6 @@ export async function renderInstellingen(root) {
       console.error(err);
       prijsStatus.textContent = 'Opslaan mislukt';
     }
-  });
-
-  // --- Groep toevoegen ----------------------------------------------------
-  const groepForm = root.querySelector('#groep-form');
-  groepForm.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const input = root.querySelector('#nieuwe-groep');
-    const naam = input.value.trim();
-    if (!naam) return;
-    const volgorde = groepen.length ? Math.max(...groepen.map((g) => g.volgorde ?? 0)) + 1 : 0;
-    await addGroep(naam, volgorde);
-    await renderInstellingen(root);
   });
 
   // --- Groep hernoemen / verwijderen -------------------------------------
@@ -99,7 +84,7 @@ export async function renderInstellingen(root) {
       const naam = li.querySelector('.groep-naam').textContent;
       if (
         window.confirm(
-          `Groep "${naam}" verwijderen? De ingevulde TSO-dagen van deze groep worden ook verwijderd.`
+          `Groep "${naam}" verwijderen? De TSO-dagen én leerlingen van deze groep worden ook verwijderd.`
         )
       ) {
         await deleteGroep(id);

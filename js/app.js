@@ -1,6 +1,11 @@
 import { supabase, vereisSessie } from './supabaseClient.js';
-import { getGroepen, getInstellingen } from './data.js';
+import { getGroepen, getInstellingen, getSchooljaren } from './data.js';
 import { restoreKey, isUnlocked, lock } from './crypto.js';
+import {
+  setHuidigSchooljaar,
+  getHuidigSchooljaar,
+  getOpgeslagenSchooljaarId,
+} from './state.js';
 import { toonGate } from './gate.js';
 import { renderOverzicht } from './overzicht.js';
 import { renderInstellingen } from './instellingen.js';
@@ -10,6 +15,7 @@ import { renderImport } from './import.js';
 const content = document.getElementById('content');
 const navGroepen = document.getElementById('nav-groepen');
 const logoutBtn = document.getElementById('logout-btn');
+const schooljaarSelect = document.getElementById('schooljaar-select');
 
 function parseRoute() {
   const raw = window.location.hash.replace(/^#\//, '');
@@ -26,9 +32,10 @@ function markeerActief(routeKey) {
   });
 }
 
-// Vult de sidebar met alle groepen onder "Overzicht".
+// Vult de sidebar met de groepen van het geselecteerde schooljaar.
 async function renderNav() {
-  const groepen = await getGroepen();
+  const sj = getHuidigSchooljaar();
+  const groepen = sj ? await getGroepen(sj.id) : [];
   navGroepen.innerHTML = groepen
     .map(
       (g) =>
@@ -46,7 +53,7 @@ async function render() {
       await renderInstellingen(content);
       await renderNav(); // groepen kunnen zijn gewijzigd
     } else if (route.name === 'import') {
-      await renderImport(content);
+      await renderImport(content, herstartNaImport);
     } else if (route.name === 'groep') {
       await renderGroep(content, route.id);
     } else {
@@ -60,6 +67,39 @@ async function render() {
       'Controleer of de database is ingericht en de anon key in <code>js/config.js</code> klopt.</div>';
   }
 }
+
+// Laadt de schooljaren en vult de switcher. Kiest het opgeslagen jaar of het nieuwste.
+async function laadSchooljaren(voorkeurId) {
+  const jaren = await getSchooljaren();
+  schooljaarSelect.innerHTML = jaren
+    .map((s) => `<option value="${s.id}">${s.naam}</option>`)
+    .join('');
+
+  if (!jaren.length) {
+    setHuidigSchooljaar(null);
+    return;
+  }
+
+  const gewenst = voorkeurId || getOpgeslagenSchooljaarId();
+  const gekozen = jaren.find((s) => s.id === gewenst) || jaren[0];
+  schooljaarSelect.value = gekozen.id;
+  setHuidigSchooljaar(gekozen);
+}
+
+// Na een import: (her)laad schooljaren, spring naar het geïmporteerde jaar.
+async function herstartNaImport(schooljaarId) {
+  await laadSchooljaren(schooljaarId);
+  await renderNav();
+  window.location.hash = '#/overzicht';
+  render();
+}
+
+schooljaarSelect.addEventListener('change', async () => {
+  await laadSchooljaren(schooljaarSelect.value);
+  await renderNav();
+  window.location.hash = '#/overzicht';
+  render();
+});
 
 logoutBtn.addEventListener('click', async () => {
   lock();
@@ -84,6 +124,7 @@ window.addEventListener('hashchange', render);
   const sessie = await vereisSessie();
   if (!sessie) return; // vereisSessie stuurt zelf door naar login
   await ontgrendelIndienNodig();
+  await laadSchooljaren();
   if (!window.location.hash) window.location.hash = '#/overzicht';
   await renderNav();
   render();

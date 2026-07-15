@@ -29,21 +29,74 @@ export async function saveEncryptieSetup({ enc_salt, enc_check, enc_check_iv }) 
   if (error) throw error;
 }
 
-// --- Groepen ---------------------------------------------------------------
+// --- Schooljaren -----------------------------------------------------------
 
-export async function getGroepen() {
+export async function getSchooljaren() {
   const { data, error } = await supabase
-    .from('groepen')
+    .from('schooljaren')
     .select('*')
-    .order('volgorde', { ascending: true })
-    .order('naam', { ascending: true });
+    .order('naam', { ascending: false }); // nieuwste bovenaan
   if (error) throw error;
   return data ?? [];
 }
 
-export async function addGroep(naam, volgorde) {
-  const { error } = await supabase.from('groepen').insert({ naam, volgorde });
+// Zoekt een schooljaar op naam of maakt het aan. Geeft de rij terug.
+export async function findOrCreateSchooljaar(naam, dagprijs = 1.75) {
+  const { data: bestaand } = await supabase
+    .from('schooljaren')
+    .select('*')
+    .eq('naam', naam)
+    .maybeSingle();
+  if (bestaand) return bestaand;
+
+  const { data, error } = await supabase
+    .from('schooljaren')
+    .insert({ naam, tso_dagprijs: dagprijs })
+    .select()
+    .single();
   if (error) throw error;
+  return data;
+}
+
+export async function saveDagprijsSchooljaar(schooljaarId, prijs) {
+  const { error } = await supabase
+    .from('schooljaren')
+    .update({ tso_dagprijs: prijs })
+    .eq('id', schooljaarId);
+  if (error) throw error;
+}
+
+// --- Groepen ---------------------------------------------------------------
+
+export async function getGroepen(schooljaarId) {
+  let q = supabase
+    .from('groepen')
+    .select('*')
+    .order('volgorde', { ascending: true })
+    .order('naam', { ascending: true });
+  if (schooljaarId) q = q.eq('schooljaar_id', schooljaarId);
+  const { data, error } = await q;
+  if (error) throw error;
+  return data ?? [];
+}
+
+// Zoekt een groep binnen een schooljaar op naam, of maakt 'm aan (voor import).
+export async function findOrCreateGroep(naam, volgorde, schooljaarId) {
+  const { data: bestaand } = await supabase
+    .from('groepen')
+    .select('*')
+    .eq('schooljaar_id', schooljaarId)
+    .eq('naam', naam)
+    .maybeSingle();
+  if (bestaand) return bestaand;
+
+  const { data, error } = await supabase
+    .from('groepen')
+    .insert({ naam, volgorde, schooljaar_id: schooljaarId })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
 }
 
 export async function renameGroep(id, naam) {
@@ -58,8 +111,14 @@ export async function deleteGroep(id) {
 
 // --- TSO-dagen per groep per maand ----------------------------------------
 
-export async function getTsoDagen() {
-  const { data, error } = await supabase.from('tso_dagen').select('*');
+// Haalt tso-dagen op, optioneel beperkt tot een set groep-id's (één schooljaar).
+export async function getTsoDagen(groepIds) {
+  let q = supabase.from('tso_dagen').select('*');
+  if (groepIds) {
+    if (!groepIds.length) return [];
+    q = q.in('groep_id', groepIds);
+  }
+  const { data, error } = await q;
   if (error) throw error;
   return data ?? [];
 }
