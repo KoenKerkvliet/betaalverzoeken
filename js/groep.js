@@ -9,6 +9,9 @@ import {
   updateBetaling,
   deleteBetaling,
   updateLeerling,
+  getNotities,
+  addNotitie,
+  deleteNotitie,
 } from './data.js';
 import { encryptText, decryptText, isUnlocked } from './crypto.js';
 import { getHuidigSchooljaar } from './state.js';
@@ -79,6 +82,14 @@ export async function renderGroep(root, id) {
   }
   leerlingen.sort((x, y) => x.voornaam.localeCompare(y.voornaam, 'nl'));
 
+  // Notities (logboek) per leerling — alleen rijen ophalen; tekst pas ontsleutelen
+  // in het popup. Count bepaalt het icoon (notitie of +).
+  const notitiesPerLeerling = new Map();
+  for (const n of await getNotities(leerlingen.map((l) => l.id))) {
+    if (!notitiesPerLeerling.has(n.leerling_id)) notitiesPerLeerling.set(n.leerling_id, []);
+    notitiesPerLeerling.get(n.leerling_id).push(n);
+  }
+
   // Betaalde bedragen per leerling per maand (record incl. id) + totaal per maand
   const betalingen = await getBetalingen(leerlingen.map((l) => l.id));
   const betaalRecord = new Map(); // "leerlingId:maand" -> betaling-record
@@ -114,6 +125,20 @@ export async function renderGroep(root, id) {
       return `<td class="cel bedrag-cel${betaaldCls}${cls}${klikbaar}" data-leerling="${l.id}" data-maand="${maand}"${extra}${titel}>${inhoud}</td>`;
     }).join('');
 
+  // Notitie-cel: icoon + aantal als er notities zijn, anders een +.
+  const notitieCelInhoud = (id) => {
+    const n = (notitiesPerLeerling.get(id) || []).length;
+    return n > 0
+      ? `<button type="button" class="notitie-knop heeft" data-leerling="${id}" title="${n} notitie(s)">
+           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+             <path d="M4 4v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6H6a2 2 0 0 0-2 2z" />
+             <path d="M14 2v6h6" /><line x1="8" y1="13" x2="16" y2="13" /><line x1="8" y1="17" x2="13" y2="17" />
+           </svg><span class="notitie-count">${n}</span>
+         </button>`
+      : `<button type="button" class="notitie-knop leeg" data-leerling="${id}" title="Notitie toevoegen">+</button>`;
+  };
+
   const leerlingRijen = leerlingen
     .map(
       (l) => `
@@ -129,6 +154,7 @@ export async function renderGroep(root, id) {
           </div>
         </th>
         ${cellenVoor(l)}
+        <td class="notitie-cel" data-leerling="${l.id}">${notitieCelInhoud(l.id)}</td>
       </tr>`
     )
     .join('');
@@ -154,6 +180,7 @@ export async function renderGroep(root, id) {
               </div>
             </th>
             ${maandKoppen}
+            <th class="notitie-kop">Notitie</th>
           </tr>
         </thead>
         <tbody>
@@ -162,8 +189,9 @@ export async function renderGroep(root, id) {
               ? `<tr class="maand-totaal-rij">
                    <th class="groep-cel totaal-label" scope="row">Binnengekomen</th>
                    ${totaalCellen}
+                   <td class="cel"></td>
                  </tr>${leerlingRijen}`
-              : `<tr><td class="cel" colspan="${MAANDEN.length + 1}" style="text-align:left;padding:14px">Nog geen leerlingen. Voeg toe via de ⋮ hierboven of via <a href="#/import">EDEX</a>.</td></tr>`
+              : `<tr><td class="cel" colspan="${MAANDEN.length + 2}" style="text-align:left;padding:14px">Nog geen leerlingen. Voeg toe via de ⋮ hierboven of via <a href="#/import">EDEX</a>.</td></tr>`
           }
         </tbody>
       </table>
@@ -502,5 +530,128 @@ export async function renderGroep(root, id) {
   root.querySelector('.overzicht-tabel tbody').addEventListener('click', (e) => {
     const td = e.target.closest('td.bedrag-cel.klikbaar');
     if (td) openBedragPop(td);
+  });
+
+  // --- Notities (logboek per leerling) -----------------------------------
+
+  function ververNotitieCel(leerlingId) {
+    const cel = root.querySelector(`.notitie-cel[data-leerling="${leerlingId}"]`);
+    if (!cel) return;
+    cel.innerHTML = notitieCelInhoud(leerlingId);
+  }
+
+  function datumNL(d) {
+    const [j, m, dag] = String(d).split('-');
+    return dag && m && j ? `${dag}-${m}-${j}` : d;
+  }
+
+  async function openNotitieModal(leerlingId) {
+    const l = leerlingen.find((x) => x.id === leerlingId);
+    const entries = notitiesPerLeerling.get(leerlingId) || [];
+    notitiesPerLeerling.set(leerlingId, entries);
+
+    // Ontsleutel de actie-teksten voor weergave.
+    for (const e of entries) {
+      if (e._actie === undefined) {
+        try {
+          e._actie = await decryptText(e.enc_actie, e.iv);
+        } catch {
+          e._actie = '⚠︎ onleesbaar';
+        }
+      }
+    }
+
+    const d = new Date();
+    const vandaag = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(
+      d.getDate()
+    ).padStart(2, '0')}`;
+
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    overlay.innerHTML = `
+      <div class="modal-card">
+        <div class="modal-kop">
+          <h2>Notities · ${pseudoniem(l.voornaam, l.achternaam)}</h2>
+          <button type="button" class="modal-x" aria-label="Sluiten">✕</button>
+        </div>
+        <p class="muted" style="margin-top:0">Logboek van contactmomenten (mail, telefoon, enz.).</p>
+        <form id="notitie-form" class="notitie-form">
+          <input type="date" id="not-datum" value="${vandaag}" />
+          <input type="text" id="not-actie" maxlength="300" placeholder="bijv. gebeld — geen gehoor" required />
+          <button type="submit" class="btn btn-primary">Toevoegen</button>
+        </form>
+        <div class="notitie-lijst" id="notitie-lijst"></div>
+      </div>`;
+    document.body.appendChild(overlay);
+
+    const sluit = () => overlay.remove();
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) sluit();
+    });
+    overlay.querySelector('.modal-x').addEventListener('click', sluit);
+    overlay.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') sluit();
+    });
+
+    const lijstEl = overlay.querySelector('#notitie-lijst');
+    function tekenLijst() {
+      entries.sort((a, b) =>
+        a.datum === b.datum
+          ? String(b.created_at).localeCompare(String(a.created_at))
+          : String(b.datum).localeCompare(String(a.datum))
+      );
+      lijstEl.innerHTML = entries.length
+        ? entries
+            .map(
+              (e) => `<div class="notitie-rij" data-id="${e.id}">
+                <span class="not-datum">${datumNL(e.datum)}</span>
+                <span class="not-actie">${escapeAttr(e._actie || '')}</span>
+                <button type="button" class="not-del mini-x" title="Verwijderen">✕</button>
+              </div>`
+            )
+            .join('')
+        : '<p class="muted">Nog geen notities. Voeg de eerste hierboven toe.</p>';
+    }
+    tekenLijst();
+
+    overlay.querySelector('#notitie-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const datum = overlay.querySelector('#not-datum').value;
+      const actie = overlay.querySelector('#not-actie').value.trim();
+      if (!datum || !actie) return;
+      try {
+        const enc = await encryptText(actie);
+        const rec = await addNotitie({ leerling_id: leerlingId, datum, enc_actie: enc.ct, iv: enc.iv });
+        rec._actie = actie;
+        entries.push(rec);
+        overlay.querySelector('#not-actie').value = '';
+        tekenLijst();
+        ververNotitieCel(leerlingId);
+      } catch (err) {
+        console.error(err);
+      }
+    });
+
+    lijstEl.addEventListener('click', async (e) => {
+      const del = e.target.closest('.not-del');
+      if (!del) return;
+      const rij = del.closest('.notitie-rij');
+      const idNot = rij.dataset.id;
+      const idx = entries.findIndex((x) => x.id === idNot);
+      if (idx >= 0) entries.splice(idx, 1);
+      tekenLijst();
+      ververNotitieCel(leerlingId);
+      try {
+        await deleteNotitie(idNot);
+      } catch (err) {
+        console.error(err);
+      }
+    });
+
+    overlay.querySelector('#not-actie').focus();
+  }
+
+  root.querySelectorAll('.notitie-knop').forEach((knop) => {
+    knop.addEventListener('click', () => openNotitieModal(knop.dataset.leerling));
   });
 }

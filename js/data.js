@@ -179,6 +179,31 @@ export async function upsertBetalingen(rows) {
   if (error) throw error;
 }
 
+// --- Notities (logboek per leerling; actie versleuteld) -------------------
+
+export async function getNotities(leerlingIds) {
+  if (!leerlingIds?.length) return [];
+  const { data, error } = await supabase
+    .from('notities')
+    .select('*')
+    .in('leerling_id', leerlingIds)
+    .order('datum', { ascending: false })
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function addNotitie(row) {
+  const { data, error } = await supabase.from('notities').insert(row).select().single();
+  if (error) throw error;
+  return data;
+}
+
+export async function deleteNotitie(id) {
+  const { error } = await supabase.from('notities').delete().eq('id', id);
+  if (error) throw error;
+}
+
 export async function updateBetaling(id, bedrag) {
   const { error } = await supabase.from('betalingen').update({ bedrag }).eq('id', id);
   if (error) throw error;

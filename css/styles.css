@@ -547,6 +547,63 @@ body {
 .bp-veld input:focus { outline: 2px solid var(--paars-licht); border-color: var(--paars); }
 .bp-acties { display: flex; gap: 8px; margin-top: 10px; }
 .bp-acties .btn { padding: 6px 10px; font-size: 13px; }
+
+/* Notitie-kolom (logboek per leerling) */
+.notitie-kop {
+  text-align: center;
+  width: 72px;
+  border-left: 1px solid var(--rand);
+}
+.notitie-cel {
+  text-align: center;
+  padding: 3px 6px;
+  border-left: 1px solid var(--rand);
+}
+.notitie-knop {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  padding: 3px 7px;
+  border-radius: 6px;
+}
+.notitie-knop.heeft { color: var(--paars); }
+.notitie-knop.leeg { color: #cbd5e1; font-size: 18px; line-height: 1; font-weight: 700; }
+.notitie-knop:hover { background: #f3f4f6; }
+.notitie-count { font-size: 12px; font-weight: 700; }
+
+.notitie-form { display: flex; gap: 8px; margin: 12px 0; flex-wrap: wrap; }
+.notitie-form input[type="date"] {
+  padding: 7px 8px;
+  border: 1px solid var(--rand);
+  border-radius: 8px;
+  font-family: inherit;
+  font-size: 14px;
+}
+.notitie-form input[type="text"] {
+  flex: 1;
+  min-width: 150px;
+  padding: 7px 10px;
+  border: 1px solid var(--rand);
+  border-radius: 8px;
+  font-family: inherit;
+  font-size: 14px;
+}
+.notitie-form input:focus { outline: 2px solid var(--paars-licht); border-color: var(--paars); }
+
+.notitie-lijst { display: flex; flex-direction: column; gap: 4px; max-height: 340px; overflow-y: auto; }
+.notitie-rij {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 9px;
+  border: 1px solid var(--rand);
+  border-radius: 8px;
+}
+.not-datum { font-size: 12px; font-weight: 700; color: var(--tekst-zacht); white-space: nowrap; }
+.not-actie { flex: 1; font-size: 14px; }
 /* Arcering per leerling: vóór instroom (grijs) / uitgesloten (blauw) / regeling (rood) */
 .bedrag-cel.voor-instroom { background: #f1f5f9; }
 .bedrag-cel.uitgesloten { background: #dbeafe; }

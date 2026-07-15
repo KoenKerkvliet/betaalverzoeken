@@ -90,6 +90,17 @@ create table if not exists public.overgemaakt (
 create index if not exists overgemaakt_schooljaar_maand_idx
   on public.overgemaakt(schooljaar_id, maand);
 
+-- --- Notities (logboek per leerling; actie versleuteld) -------------------
+create table if not exists public.notities (
+  id          uuid primary key default gen_random_uuid(),
+  leerling_id uuid not null references public.leerlingen(id) on delete cascade,
+  datum       date not null,
+  enc_actie   text not null,
+  iv          text not null,
+  created_at  timestamptz not null default now()
+);
+create index if not exists notities_leerling_idx on public.notities(leerling_id);
+
 -- ===========================================================================
 -- Row Level Security
 -- Er is geen registratie: alleen door jou in Supabase aangemaakte accounts
@@ -104,6 +115,7 @@ alter table public.tso_dagen    enable row level security;
 alter table public.leerlingen   enable row level security;
 alter table public.betalingen   enable row level security;
 alter table public.overgemaakt  enable row level security;
+alter table public.notities     enable row level security;
 
 do $$
 begin
@@ -140,6 +152,11 @@ begin
   -- overgemaakt
   if not exists (select 1 from pg_policies where tablename = 'overgemaakt' and policyname = 'ingelogd_alles') then
     create policy ingelogd_alles on public.overgemaakt
+      for all to authenticated using (true) with check (true);
+  end if;
+  -- notities
+  if not exists (select 1 from pg_policies where tablename = 'notities' and policyname = 'ingelogd_alles') then
+    create policy ingelogd_alles on public.notities
       for all to authenticated using (true) with check (true);
   end if;
 end $$;
