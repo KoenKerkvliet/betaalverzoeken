@@ -3,6 +3,7 @@ import { getGroepen } from './data.js';
 import { renderOverzicht } from './overzicht.js';
 import { renderInstellingen } from './instellingen.js';
 import { renderGroep } from './groep.js';
+import { renderImport } from './import.js';
 
 const content = document.getElementById('content');
 const navGroepen = document.getElementById('nav-groepen');
@@ -12,6 +13,7 @@ function parseRoute() {
   const raw = window.location.hash.replace(/^#\//, '');
   const [base, id] = raw.split('/');
   if (base === 'instellingen') return { name: 'instellingen', key: 'instellingen' };
+  if (base === 'import') return { name: 'import', key: 'import' };
   if (base === 'groep' && id) return { name: 'groep', id, key: `groep/${id}` };
   return { name: 'overzicht', key: 'overzicht' };
 }
@@ -41,6 +43,8 @@ async function render() {
     if (route.name === 'instellingen') {
       await renderInstellingen(content);
       await renderNav(); // groepen kunnen zijn gewijzigd
+    } else if (route.name === 'import') {
+      await renderImport(content);
     } else if (route.name === 'groep') {
       await renderGroep(content, route.id);
     } else {
