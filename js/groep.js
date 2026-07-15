@@ -541,11 +541,6 @@ export async function renderGroep(root, id) {
     }
   }
 
-  root.querySelector('.overzicht-tabel tbody').addEventListener('click', (e) => {
-    const td = e.target.closest('td.bedrag-cel.klikbaar');
-    if (td) openBedragPop(td);
-  });
-
   // --- Notities (logboek per leerling) -----------------------------------
 
   function ververNotitieCel(leerlingId) {
@@ -665,7 +660,15 @@ export async function renderGroep(root, id) {
     overlay.querySelector('#not-actie').focus();
   }
 
-  root.querySelectorAll('.notitie-knop').forEach((knop) => {
-    knop.addEventListener('click', () => openNotitieModal(knop.dataset.leerling));
+  // Eén gedelegeerde klik-handler voor de hele tabel-body (werkt ook voor
+  // dynamisch vervangen notitie-iconen).
+  root.querySelector('.overzicht-tabel tbody').addEventListener('click', (e) => {
+    const notitieKnop = e.target.closest('.notitie-knop');
+    if (notitieKnop) {
+      openNotitieModal(notitieKnop.dataset.leerling);
+      return;
+    }
+    const td = e.target.closest('td.bedrag-cel.klikbaar');
+    if (td) openBedragPop(td);
   });
 }
