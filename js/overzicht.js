@@ -1,6 +1,13 @@
 import { euro } from './supabaseClient.js';
 import { MAANDEN, MAANDEN_KORT } from './config.js';
-import { getGroepen, getTsoDagen, upsertTsoDagen, getLeerlingen, setLeergeld } from './data.js';
+import {
+  getGroepen,
+  getTsoDagen,
+  upsertTsoDagen,
+  getLeerlingen,
+  setLeergeld,
+  getBetalingen,
+} from './data.js';
 import { decryptText, isUnlocked } from './crypto.js';
 import { getHuidigSchooljaar } from './state.js';
 
@@ -109,6 +116,17 @@ export async function renderOverzicht(root) {
     }
   }
 
+  // Schoolbreed binnengekomen per maand (som van alle betalingen).
+  const schoolMaand = {};
+  let schoolTotaal = 0;
+  if (alleLeerlingen.length) {
+    const alleBetalingen = await getBetalingen(alleLeerlingen.map((l) => l.id));
+    for (const b of alleBetalingen) {
+      schoolMaand[b.maand] = (schoolMaand[b.maand] || 0) + Number(b.bedrag);
+      schoolTotaal += Number(b.bedrag);
+    }
+  }
+
   const ingeklapt = leesIngeklapt();
 
   // Kolomkoppen — klikbaar om in/uit te klappen
@@ -178,6 +196,20 @@ export async function renderOverzicht(root) {
         <tbody>
           ${rijen}
         </tbody>
+        <tfoot>
+          <tr class="school-totaal-rij">
+            <th class="groep-cel totaal-label" scope="row">Binnengekomen</th>
+            ${MAANDEN.map((_, i) => {
+              const maand = i + 1;
+              const dicht = ingeklapt.has(maand) ? ' ingeklapt' : '';
+              const t = schoolMaand[maand];
+              return `<td class="cel bedrag-cel${dicht}" data-col="${maand}">
+                <span class="cel-inhoud">${t ? euro.format(t) : '<span class="leeg">—</span>'}</span>
+              </td>`;
+            }).join('')}
+            <td class="totaal-cel">${euro.format(schoolTotaal)}</td>
+          </tr>
+        </tfoot>
       </table>
     </div>
     <p id="save-status" class="save-status" aria-live="polite"></p>
