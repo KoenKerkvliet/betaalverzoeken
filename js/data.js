@@ -194,15 +194,26 @@ export async function getOvergemaakt(schooljaarId) {
   const { data, error } = await supabase
     .from('overgemaakt')
     .select('*')
-    .eq('schooljaar_id', schooljaarId);
+    .eq('schooljaar_id', schooljaarId)
+    .order('created_at', { ascending: true });
   if (error) throw error;
   return data ?? [];
 }
 
-export async function upsertOvergemaakt(schooljaarId, maand, bedrag) {
+export async function addOvergemaakt(schooljaarId, maand, bedrag, opmerking) {
   const { error } = await supabase
     .from('overgemaakt')
-    .upsert({ schooljaar_id: schooljaarId, maand, bedrag }, { onConflict: 'schooljaar_id,maand' });
+    .insert({ schooljaar_id: schooljaarId, maand, bedrag, opmerking: opmerking || null });
+  if (error) throw error;
+}
+
+export async function updateOvergemaakt(id, velden) {
+  const { error } = await supabase.from('overgemaakt').update(velden).eq('id', id);
+  if (error) throw error;
+}
+
+export async function deleteOvergemaakt(id) {
+  const { error } = await supabase.from('overgemaakt').delete().eq('id', id);
   if (error) throw error;
 }
 

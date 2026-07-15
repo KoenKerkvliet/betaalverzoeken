@@ -77,15 +77,18 @@ create table if not exists public.betalingen (
 );
 create index if not exists betalingen_leerling_idx on public.betalingen(leerling_id);
 
--- --- Overgemaakt (handmatig, per schooljaar per maand) --------------------
+-- --- Overgemaakt (handmatig; meerdere betalingen per schooljaar/maand) -----
 create table if not exists public.overgemaakt (
   id            uuid primary key default gen_random_uuid(),
   schooljaar_id uuid not null references public.schooljaren(id) on delete cascade,
   maand         smallint not null check (maand between 1 and 10),
   bedrag        numeric(10,2) not null default 0,
-  updated_at    timestamptz not null default now(),
-  unique (schooljaar_id, maand)
+  opmerking     text,
+  created_at    timestamptz not null default now(),
+  updated_at    timestamptz not null default now()
 );
+create index if not exists overgemaakt_schooljaar_maand_idx
+  on public.overgemaakt(schooljaar_id, maand);
 
 -- ===========================================================================
 -- Row Level Security

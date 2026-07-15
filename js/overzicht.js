@@ -8,8 +8,10 @@ import {
   setLeergeld,
   getBetalingenPerMaand,
   getOvergemaakt,
-  upsertOvergemaakt,
+  updateOvergemaakt,
+  deleteOvergemaakt,
 } from './data.js';
+import { parseBedrag } from './util.js';
 import { decryptText, isUnlocked } from './crypto.js';
 import { getHuidigSchooljaar } from './state.js';
 
@@ -25,13 +27,14 @@ function escapeHtml(s) {
   );
 }
 
-// Parset een Nederlands bedrag: "8.919,70", "8919,7", "8919.7" of "8919" → getal.
-function parseBedrag(s) {
-  let t = String(s || '').replace(/[€\s]/g, '');
-  if (t === '') return 0;
-  if (t.includes(',')) t = t.replace(/\./g, '').replace(',', '.');
-  const n = Number(t);
-  return isNaN(n) ? 0 : Math.max(0, n);
+// Eén regel in het uitklap-popupje van "Overgemaakt".
+function ogRijHtml(e) {
+  return `<div class="og-rij" data-id="${e.id}">
+    <span class="og-euro">€</span>
+    <input type="text" class="og-bedrag-input" inputmode="decimal" value="${String(e.bedrag).replace('.', ',')}" />
+    <input type="text" class="og-opm-input" placeholder="opmerking" value="${escapeHtml(e.opmerking || '')}" />
+    <button type="button" class="og-del mini-x" title="Verwijderen">✕</button>
+  </div>`;
 }
 
 function leergeldRijenHtml(leerlingen, groepNaam, groepJaarTotaal) {
@@ -135,11 +138,13 @@ export async function renderOverzicht(root) {
     schoolTotaal += Number(r.totaal);
   }
 
-  // Handmatig ingevoerde "overgemaakt"-bedragen per maand.
-  const overgemaaktMap = {};
-  for (const o of await getOvergemaakt(schooljaar.id)) overgemaaktMap[o.maand] = Number(o.bedrag);
+  // "Overgemaakt"-betalingen als lijst per maand (kan meerdere per maand zijn).
+  const overgemaaktPerMaand = {};
+  for (const o of await getOvergemaakt(schooljaar.id)) (overgemaaktPerMaand[o.maand] ||= []).push(o);
+  const overgemaaktSom = (maand) =>
+    (overgemaaktPerMaand[maand] || []).reduce((a, e) => a + Number(e.bedrag), 0);
   const overgemaaktTotaal = () =>
-    Object.values(overgemaaktMap).reduce((a, b) => a + (Number(b) || 0), 0);
+    Object.keys(overgemaaktPerMaand).reduce((a, m) => a + overgemaaktSom(Number(m)), 0);
 
   const ingeklapt = leesIngeklapt();
 
@@ -228,12 +233,13 @@ export async function renderOverzicht(root) {
             ${MAANDEN.map((_, i) => {
               const maand = i + 1;
               const dicht = ingeklapt.has(maand) ? ' ingeklapt' : '';
-              const val = overgemaaktMap[maand];
-              return `<td class="cel bedrag-cel${dicht}" data-col="${maand}">
-                <span class="cel-inhoud"><input type="text" class="overgemaakt-input"
-                  data-maand="${maand}" inputmode="decimal" placeholder="—"
-                  value="${val ? euro.format(val) : ''}" /></span>
-              </td>`;
+              const heeft = (overgemaaktPerMaand[maand] || []).length > 0;
+              const inhoud = heeft
+                ? `<button type="button" class="og-bedrag" data-maand="${maand}">${euro.format(
+                    overgemaaktSom(maand)
+                  )}</button>`
+                : '<span class="leeg">—</span>';
+              return `<td class="cel bedrag-cel${dicht}" data-col="${maand}"><span class="cel-inhoud">${inhoud}</span></td>`;
             }).join('')}
             <td class="totaal-cel" id="overgemaakt-totaal">${euro.format(overgemaaktTotaal())}</td>
           </tr>
@@ -433,29 +439,108 @@ export async function renderOverzicht(root) {
     }
   });
 
-  // --- Overgemaakt: handmatige invoer per maand --------------------------
-  root.querySelectorAll('.overgemaakt-input').forEach((inp) => {
-    const maand = Number(inp.dataset.maand);
+  // --- Overgemaakt: klik op een bedrag → uitklap-popup ------------------
 
-    // Tijdens bewerken: toon een kaal, bewerkbaar getal met komma.
-    inp.addEventListener('focus', () => {
-      const v = overgemaaktMap[maand];
-      inp.value = v ? String(v).replace('.', ',') : '';
-      inp.select();
+  // Werkt één cel van de Overgemaakt-rij + het totaal bij na een wijziging.
+  function ververOgCel(maand) {
+    const cel = root.querySelector(`.overgemaakt-rij [data-col="${maand}"] .cel-inhoud`);
+    if (cel) {
+      const heeft = (overgemaaktPerMaand[maand] || []).length > 0;
+      cel.innerHTML = heeft
+        ? `<button type="button" class="og-bedrag" data-maand="${maand}">${euro.format(
+            overgemaaktSom(maand)
+          )}</button>`
+        : '<span class="leeg">—</span>';
+      const knop = cel.querySelector('.og-bedrag');
+      if (knop) knop.addEventListener('click', () => openOgBreakdown(maand));
+    }
+    const totCel = root.querySelector('#overgemaakt-totaal');
+    if (totCel) totCel.textContent = euro.format(overgemaaktTotaal());
+  }
+
+  function openOgBreakdown(maand) {
+    const entries = overgemaaktPerMaand[maand] || [];
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    overlay.innerHTML = `
+      <div class="modal-card">
+        <div class="modal-kop">
+          <h2>Overgemaakt · ${MAANDEN[maand - 1]}</h2>
+          <button type="button" class="modal-x" aria-label="Sluiten">✕</button>
+        </div>
+        <p class="muted" style="margin-top:0">Losse betalingen van deze maand. Je kunt bedrag en opmerking aanpassen of een betaling verwijderen.</p>
+        <div class="og-lijst" id="og-lijst">
+          ${entries.map(ogRijHtml).join('') || '<p class="muted">Geen betalingen deze maand.</p>'}
+        </div>
+        <p class="og-modal-totaal">Totaal: <strong id="og-modal-som">${euro.format(overgemaaktSom(maand))}</strong></p>
+      </div>`;
+    document.body.appendChild(overlay);
+
+    const sluit = () => overlay.remove();
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) sluit();
+    });
+    overlay.querySelector('.modal-x').addEventListener('click', sluit);
+    overlay.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') sluit();
     });
 
-    // Na bewerken: opslaan en netjes als bedrag tonen.
-    inp.addEventListener('blur', async () => {
-      const bedrag = parseBedrag(inp.value);
-      overgemaaktMap[maand] = bedrag;
-      inp.value = bedrag ? euro.format(bedrag) : '';
-      const totCel = root.querySelector('#overgemaakt-totaal');
-      if (totCel) totCel.textContent = euro.format(overgemaaktTotaal());
-      try {
-        await upsertOvergemaakt(schooljaar.id, maand, bedrag);
-      } catch (e) {
-        console.error(e);
+    const lijst = overlay.querySelector('#og-lijst');
+    const updateTotalen = () => {
+      overlay.querySelector('#og-modal-som').textContent = euro.format(overgemaaktSom(maand));
+      ververOgCel(maand);
+    };
+
+    // Bedrag / opmerking aanpassen
+    lijst.addEventListener('change', async (e) => {
+      const rij = e.target.closest('.og-rij');
+      if (!rij) return;
+      const id = rij.dataset.id;
+      const entry = entries.find((x) => x.id === id);
+      if (!entry) return;
+      if (e.target.classList.contains('og-bedrag-input')) {
+        const bedrag = parseBedrag(e.target.value);
+        e.target.value = String(bedrag).replace('.', ',');
+        entry.bedrag = bedrag;
+        updateTotalen();
+        try {
+          await updateOvergemaakt(id, { bedrag });
+        } catch (err) {
+          console.error(err);
+        }
+      } else if (e.target.classList.contains('og-opm-input')) {
+        const opmerking = e.target.value.trim() || null;
+        entry.opmerking = opmerking;
+        try {
+          await updateOvergemaakt(id, { opmerking });
+        } catch (err) {
+          console.error(err);
+        }
       }
     });
+
+    // Verwijderen
+    lijst.addEventListener('click', async (e) => {
+      const del = e.target.closest('.og-del');
+      if (!del) return;
+      const rij = del.closest('.og-rij');
+      const id = rij.dataset.id;
+      const idx = entries.findIndex((x) => x.id === id);
+      if (idx >= 0) entries.splice(idx, 1);
+      rij.remove();
+      if (!entries.length) lijst.innerHTML = '<p class="muted">Geen betalingen deze maand.</p>';
+      updateTotalen();
+      try {
+        await deleteOvergemaakt(id);
+      } catch (err) {
+        console.error(err);
+      }
+    });
+
+    lijst.querySelector('.og-bedrag-input')?.focus();
+  }
+
+  root.querySelectorAll('.og-bedrag').forEach((knop) => {
+    knop.addEventListener('click', () => openOgBreakdown(Number(knop.dataset.maand)));
   });
 }

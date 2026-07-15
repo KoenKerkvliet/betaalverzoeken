@@ -1,5 +1,7 @@
 import { supabase, vereisSessie } from './supabaseClient.js';
-import { getGroepen, getInstellingen, getSchooljaren } from './data.js';
+import { getGroepen, getInstellingen, getSchooljaren, addOvergemaakt } from './data.js';
+import { MAANDEN } from './config.js';
+import { parseBedrag } from './util.js';
 import { restoreKey, isUnlocked, lock } from './crypto.js';
 import {
   setHuidigSchooljaar,
@@ -16,6 +18,7 @@ const content = document.getElementById('content');
 const navGroepen = document.getElementById('nav-groepen');
 const logoutBtn = document.getElementById('logout-btn');
 const schooljaarSelect = document.getElementById('schooljaar-select');
+const betalingBtn = document.getElementById('betaling-btn');
 
 function parseRoute() {
   const raw = window.location.hash.replace(/^#\//, '');
@@ -106,6 +109,71 @@ logoutBtn.addEventListener('click', async () => {
   await supabase.auth.signOut();
   window.location.replace('index.html');
 });
+
+// Betaling toevoegen (overgemaakt) via de header-knop.
+function openBetalingModal() {
+  const sj = getHuidigSchooljaar();
+  if (!sj) return;
+
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = `
+    <div class="modal-card">
+      <div class="modal-kop">
+        <h2>Betaling toevoegen</h2>
+        <button type="button" class="modal-x" aria-label="Sluiten">✕</button>
+      </div>
+      <p class="muted" style="margin-top:0">Voeg een bijgeschreven bedrag toe onder "Overgemaakt" (schooljaar ${sj.naam}). Meerdere betalingen in dezelfde maand worden opgeteld.</p>
+      <form id="betaling-form" class="modal-form">
+        <label>Bedrag (€)
+          <input type="text" id="bet-bedrag" inputmode="decimal" placeholder="bijv. 3000,00" required />
+        </label>
+        <label>Maand
+          <select id="bet-maand">${MAANDEN.map((m, i) => `<option value="${i + 1}">${m}</option>`).join('')}</select>
+        </label>
+        <label>Opmerking (optioneel)
+          <input type="text" id="bet-opm" maxlength="200" placeholder="bijv. betaalverzoeken of handmatige overschrijving" />
+        </label>
+        <button type="submit" class="btn btn-primary">Toevoegen</button>
+        <p id="bet-msg" class="msg"></p>
+      </form>
+    </div>`;
+  document.body.appendChild(overlay);
+
+  const sluit = () => overlay.remove();
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) sluit();
+  });
+  overlay.querySelector('.modal-x').addEventListener('click', sluit);
+  overlay.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') sluit();
+  });
+  overlay.querySelector('#bet-bedrag').focus();
+
+  overlay.querySelector('#betaling-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const msg = overlay.querySelector('#bet-msg');
+    const bedrag = parseBedrag(overlay.querySelector('#bet-bedrag').value);
+    const maand = Number(overlay.querySelector('#bet-maand').value);
+    const opm = overlay.querySelector('#bet-opm').value.trim();
+    if (!bedrag) {
+      msg.textContent = 'Vul een geldig bedrag in.';
+      msg.className = 'msg error';
+      return;
+    }
+    try {
+      await addOvergemaakt(sj.id, maand, bedrag, opm);
+      sluit();
+      render(); // ververs de huidige pagina (overzicht toont de nieuwe som)
+    } catch (err) {
+      console.error(err);
+      msg.textContent = 'Opslaan mislukt.';
+      msg.className = 'msg error';
+    }
+  });
+}
+
+betalingBtn.addEventListener('click', openBetalingModal);
 
 // Zorgt dat de encryptie is ingesteld (eerste keer) en ontgrendeld.
 async function ontgrendelIndienNodig() {

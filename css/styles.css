@@ -573,6 +573,100 @@ body {
   font-variant-numeric: tabular-nums;
 }
 .overgemaakt-input:focus { outline: 2px solid var(--paars-licht); border-color: var(--paars); }
+
+/* Klikbaar bedrag in de Overgemaakt-rij */
+.og-bedrag {
+  border: none;
+  background: transparent;
+  font: inherit;
+  font-weight: 700;
+  color: var(--paars-donker);
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+}
+.og-bedrag:hover { color: var(--paars); }
+
+/* Modals (betaling toevoegen + overgemaakt-uitsplitsing) */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(31, 41, 55, 0.45);
+}
+.modal-card {
+  background: var(--wit);
+  border-radius: 14px;
+  padding: 22px 24px;
+  width: 100%;
+  max-width: 440px;
+  max-height: calc(100vh - 40px);
+  overflow-y: auto;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
+}
+.modal-kop { display: flex; align-items: center; justify-content: space-between; }
+.modal-kop h2 { margin: 0; font-size: 18px; }
+.modal-x {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  color: var(--tekst-zacht);
+  font-size: 16px;
+  padding: 4px 6px;
+  border-radius: 6px;
+}
+.modal-x:hover { background: #f3f4f6; color: var(--tekst); }
+.modal-form { display: flex; flex-direction: column; gap: 12px; margin-top: 10px; }
+.modal-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--tekst-zacht);
+}
+.modal-form input, .modal-form select {
+  padding: 9px 11px;
+  border: 1px solid var(--rand);
+  border-radius: 8px;
+  font-family: inherit;
+  font-size: 15px;
+}
+.modal-form input:focus, .modal-form select:focus {
+  outline: 2px solid var(--paars-licht);
+  border-color: var(--paars);
+}
+
+/* Overgemaakt-uitsplitsing */
+.og-lijst { display: flex; flex-direction: column; gap: 6px; margin: 12px 0; }
+.og-rij { display: flex; align-items: center; gap: 6px; }
+.og-euro { color: var(--tekst-zacht); }
+.og-bedrag-input {
+  width: 92px;
+  padding: 6px 8px;
+  border: 1px solid var(--rand);
+  border-radius: 6px;
+  text-align: right;
+  font-family: inherit;
+  font-size: 14px;
+}
+.og-opm-input {
+  flex: 1;
+  padding: 6px 8px;
+  border: 1px solid var(--rand);
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: 13px;
+}
+.og-bedrag-input:focus, .og-opm-input:focus {
+  outline: 2px solid var(--paars-licht);
+  border-color: var(--paars);
+}
+.og-modal-totaal { margin: 6px 0 0; font-size: 14px; text-align: right; }
 .legenda { display: inline-flex; align-items: center; gap: 4px; margin-left: 8px; }
 .stip { display: inline-block; width: 8px; height: 8px; border-radius: 50%; }
 .stip.betaald { background: var(--groen); }
