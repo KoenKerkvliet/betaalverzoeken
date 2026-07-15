@@ -20,6 +20,15 @@ export async function saveDagprijs(prijs) {
   if (error) throw error;
 }
 
+// Slaat de encryptie-metadata op (salt + controlewaarde). Nooit de sleutel zelf.
+export async function saveEncryptieSetup({ enc_salt, enc_check, enc_check_iv }) {
+  const { error } = await supabase
+    .from('instellingen')
+    .update({ enc_salt, enc_check, enc_check_iv })
+    .eq('id', 1);
+  if (error) throw error;
+}
+
 // --- Groepen ---------------------------------------------------------------
 
 export async function getGroepen() {
@@ -60,5 +69,26 @@ export async function upsertTsoDagen(groep_id, maand, dagen) {
   const { error } = await supabase
     .from('tso_dagen')
     .upsert({ groep_id, maand, dagen }, { onConflict: 'groep_id,maand' });
+  if (error) throw error;
+}
+
+// --- Leerlingen (naam versleuteld) ----------------------------------------
+
+export async function getLeerlingen(groep_id) {
+  let q = supabase.from('leerlingen').select('*');
+  if (groep_id) q = q.eq('groep_id', groep_id);
+  const { data, error } = await q;
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function insertLeerlingen(rows) {
+  if (!rows.length) return;
+  const { error } = await supabase.from('leerlingen').insert(rows);
+  if (error) throw error;
+}
+
+export async function deleteLeerling(id) {
+  const { error } = await supabase.from('leerlingen').delete().eq('id', id);
   if (error) throw error;
 }

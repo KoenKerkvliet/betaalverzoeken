@@ -9,6 +9,10 @@ create table if not exists public.instellingen (
   tso_dagprijs numeric(6,2) not null default 1.75,
   schooljaar   text not null default '2025-2026',
   updated_at   timestamptz not null default now(),
+  -- Encryptie-metadata (nullable = nog niet ingesteld). Nooit de sleutel/passphrase.
+  enc_salt     text,
+  enc_check    text,
+  enc_check_iv text,
   constraint instellingen_enkele_rij check (id = 1)
 );
 
@@ -35,6 +39,16 @@ create table if not exists public.tso_dagen (
   unique (groep_id, maand)
 );
 
+-- --- Leerlingen (naam versleuteld) ----------------------------------------
+create table if not exists public.leerlingen (
+  id         uuid primary key default gen_random_uuid(),
+  groep_id   uuid not null references public.groepen(id) on delete cascade,
+  enc_naam   text not null,   -- ciphertext (base64) van {voornaam, achternaam}
+  iv         text not null,   -- unieke IV per leerling (base64)
+  created_at timestamptz not null default now()
+);
+create index if not exists leerlingen_groep_idx on public.leerlingen(groep_id);
+
 -- ===========================================================================
 -- Row Level Security
 -- Er is geen registratie: alleen door jou in Supabase aangemaakte accounts
@@ -45,6 +59,7 @@ create table if not exists public.tso_dagen (
 alter table public.instellingen enable row level security;
 alter table public.groepen      enable row level security;
 alter table public.tso_dagen    enable row level security;
+alter table public.leerlingen   enable row level security;
 
 do $$
 begin
@@ -61,6 +76,11 @@ begin
   -- tso_dagen
   if not exists (select 1 from pg_policies where tablename = 'tso_dagen' and policyname = 'ingelogd_alles') then
     create policy ingelogd_alles on public.tso_dagen
+      for all to authenticated using (true) with check (true);
+  end if;
+  -- leerlingen
+  if not exists (select 1 from pg_policies where tablename = 'leerlingen' and policyname = 'ingelogd_alles') then
+    create policy ingelogd_alles on public.leerlingen
       for all to authenticated using (true) with check (true);
   end if;
 end $$;

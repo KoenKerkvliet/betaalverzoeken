@@ -367,6 +367,17 @@ body {
 }
 .inline-form input:focus { outline: 2px solid var(--paars-licht); border-color: var(--paars); }
 
+/* Encryptie-gate (setup / ontgrendelen) */
+.gate-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: linear-gradient(135deg, #ede9fe 0%, #f7f7fb 60%);
+}
+
 /* Import */
 .privacy-note {
   background: var(--paars-licht);

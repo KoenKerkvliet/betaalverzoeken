@@ -1,5 +1,7 @@
 import { supabase, vereisSessie } from './supabaseClient.js';
-import { getGroepen } from './data.js';
+import { getGroepen, getInstellingen } from './data.js';
+import { restoreKey, isUnlocked, lock } from './crypto.js';
+import { toonGate } from './gate.js';
 import { renderOverzicht } from './overzicht.js';
 import { renderInstellingen } from './instellingen.js';
 import { renderGroep } from './groep.js';
@@ -60,15 +62,28 @@ async function render() {
 }
 
 logoutBtn.addEventListener('click', async () => {
+  lock();
   await supabase.auth.signOut();
   window.location.replace('index.html');
 });
+
+// Zorgt dat de encryptie is ingesteld (eerste keer) en ontgrendeld.
+async function ontgrendelIndienNodig() {
+  const instellingen = await getInstellingen();
+  if (!instellingen.enc_salt) {
+    await toonGate('setup', instellingen);
+  } else {
+    await restoreKey();
+    if (!isUnlocked()) await toonGate('unlock', instellingen);
+  }
+}
 
 window.addEventListener('hashchange', render);
 
 (async () => {
   const sessie = await vereisSessie();
   if (!sessie) return; // vereisSessie stuurt zelf door naar login
+  await ontgrendelIndienNodig();
   if (!window.location.hash) window.location.hash = '#/overzicht';
   await renderNav();
   render();

@@ -1,9 +1,12 @@
 // EDEX-import — VOLLEDIG in de browser.
 //
 // Privacy: het XML-bestand wordt hier lokaal ingelezen en geparsed. Alleen
-// voornaam, achternaam en groep worden eruit gehaald. Er wordt NIETS naar
-// Supabase of ergens anders gestuurd. Leerkrachten en alle overige velden
-// worden genegeerd en verlaten de browser niet.
+// voornaam, achternaam en groep worden eruit gehaald. Leerkrachten en alle
+// overige velden worden genegeerd en verlaten de browser niet. Bij opslaan
+// wordt de naam client-side versleuteld; Supabase ziet alleen ciphertext.
+
+import { getGroepen, getLeerlingen, insertLeerlingen } from './data.js';
+import { encryptText, decryptText, isUnlocked } from './crypto.js';
 
 // Leest en parset een EDEX-XML-string. Geeft { groepen, leerlingen, fouten }.
 export function parseEdex(xmlTekst) {
@@ -152,13 +155,85 @@ function toonResultaat(root, leerlingen, groepen) {
     .join('');
 
   root.innerHTML = `
-    <div class="opslaan-note">
-      Dit is een <strong>voorbeeldweergave</strong> van wat er is ingelezen. Het opslaan van
-      leerlingen in het portaal bouwen we in de volgende stap, samen met de versleuteling van
-      de namen. Er is nu nog niets opgeslagen.
+    <div class="kaart">
+      <p class="muted" style="margin-top:0">Controleer de gegevens hieronder en sla ze daarna versleuteld op in het portaal. Al bestaande leerlingen (zelfde voornaam, achternaam én groep) worden overgeslagen.</p>
+      <button class="btn btn-primary" id="opslaan-btn">Versleuteld opslaan in portaal</button>
+      <p id="opslaan-status" class="msg"></p>
     </div>
     ${blokken}
   `;
+
+  const btn = root.querySelector('#opslaan-btn');
+  const status = root.querySelector('#opslaan-status');
+  btn.addEventListener('click', () => slaLeerlingenOp(leerlingen, btn, status));
+}
+
+async function slaLeerlingenOp(leerlingen, btn, status) {
+  if (!isUnlocked()) {
+    status.className = 'msg error';
+    status.textContent = 'De encryptie is niet ontgrendeld. Herlaad de pagina en voer je passphrase in.';
+    return;
+  }
+  btn.disabled = true;
+  btn.textContent = 'Bezig met opslaan…';
+  status.className = 'msg';
+  status.textContent = '';
+
+  try {
+    const groepen = await getGroepen();
+    const naamNaarId = new Map(groepen.map((g) => [g.naam.toLowerCase(), g.id]));
+
+    // Bestaande leerlingen ontsleutelen voor ontdubbeling
+    const bestaand = await getLeerlingen();
+    const bestaandSet = new Set();
+    for (const b of bestaand) {
+      try {
+        const { v, a } = JSON.parse(await decryptText(b.enc_naam, b.iv));
+        bestaandSet.add(sleutel(b.groep_id, v, a));
+      } catch {
+        /* onleesbaar record — overslaan bij vergelijking */
+      }
+    }
+
+    const toevoegen = [];
+    let geenGroep = 0;
+    let dubbel = 0;
+    for (const l of leerlingen) {
+      const gid = naamNaarId.get(l.groep.toLowerCase());
+      if (!gid) {
+        geenGroep++;
+        continue;
+      }
+      const k = sleutel(gid, l.voornaam, l.achternaam);
+      if (bestaandSet.has(k)) {
+        dubbel++;
+        continue;
+      }
+      bestaandSet.add(k);
+      const enc = await encryptText(JSON.stringify({ v: l.voornaam, a: l.achternaam }));
+      toevoegen.push({ groep_id: gid, enc_naam: enc.ct, iv: enc.iv });
+    }
+
+    await insertLeerlingen(toevoegen);
+
+    const delen = [`${toevoegen.length} toegevoegd`];
+    if (dubbel) delen.push(`${dubbel} al aanwezig (overgeslagen)`);
+    if (geenGroep) delen.push(`${geenGroep} zonder bekende groep (overgeslagen)`);
+    status.className = 'msg success';
+    status.textContent = delen.join(' · ');
+    btn.textContent = 'Opnieuw opslaan';
+    btn.disabled = false;
+  } catch (err) {
+    console.error(err);
+    status.className = 'msg error';
+    status.textContent = 'Opslaan mislukt. Probeer het opnieuw.';
+    btn.textContent = 'Versleuteld opslaan in portaal';
+    btn.disabled = false;
+  }
+}
+
+function sleutel(groepId, voornaam, achternaam) {
+  return `${groepId}|${(voornaam || '').toLowerCase()}|${(achternaam || '').toLowerCase()}`;
 }
 
 function escapeHtml(s) {
