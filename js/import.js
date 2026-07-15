@@ -12,6 +12,7 @@ import {
   getLeerlingen,
   insertLeerlingen,
   upsertBetalingen,
+  getTsoDagen,
 } from './data.js';
 import { encryptText, decryptText, isUnlocked } from './crypto.js';
 import { getHuidigSchooljaar } from './state.js';
@@ -333,8 +334,9 @@ async function parseExport(file) {
     .filter((r) => r.leerling);
 }
 
-// Popup om de maand te kiezen. Resolvt met maandnummer (1..10) of null.
-function kiesMaand() {
+// Popup om één of meerdere maanden te kiezen. Resolvt met een gesorteerde
+// array van maandnummers, of null bij annuleren.
+function kiesMaanden() {
   return new Promise((resolve) => {
     const overlay = document.createElement('div');
     overlay.className = 'gate-overlay';
@@ -342,15 +344,17 @@ function kiesMaand() {
       <div class="auth-card">
         <div class="auth-brand">
           <div class="auth-logo">📅</div>
-          <h1>Voor welke maand?</h1>
-          <p class="muted">Kies de maand waarvoor deze betalingen gelden.</p>
+          <h1>Voor welke maand(en)?</h1>
+          <p class="muted">Kies één maand, of meerdere om een gecombineerde betaling automatisch over die maanden te splitsen (op basis van het verschuldigde bedrag per maand).</p>
         </div>
         <form id="maand-form" class="auth-form">
-          <label>Maand
-            <select id="maand-select">
-              ${MAANDEN.map((m, i) => `<option value="${i + 1}">${m}</option>`).join('')}
-            </select>
-          </label>
+          <div class="maand-keuze">
+            ${MAANDEN.map(
+              (m, i) =>
+                `<label class="maand-optie"><input type="checkbox" value="${i + 1}" /> ${m}</label>`
+            ).join('')}
+          </div>
+          <p id="maand-msg" class="msg"></p>
           <div style="display:flex;gap:8px">
             <button type="submit" class="btn btn-primary">Verwerken</button>
             <button type="button" class="btn btn-ghost" id="maand-annuleer">Annuleren</button>
@@ -360,9 +364,17 @@ function kiesMaand() {
     document.body.appendChild(overlay);
     overlay.querySelector('#maand-form').addEventListener('submit', (e) => {
       e.preventDefault();
-      const m = Number(overlay.querySelector('#maand-select').value);
+      const gekozen = [...overlay.querySelectorAll('.maand-keuze input:checked')]
+        .map((c) => Number(c.value))
+        .sort((a, b) => a - b);
+      if (!gekozen.length) {
+        const msg = overlay.querySelector('#maand-msg');
+        msg.textContent = 'Kies minstens één maand.';
+        msg.className = 'msg error';
+        return;
+      }
       overlay.remove();
-      resolve(m);
+      resolve(gekozen);
     });
     overlay.querySelector('#maand-annuleer').addEventListener('click', () => {
       overlay.remove();
@@ -396,8 +408,8 @@ async function verwerkExport(file, root, status) {
     return;
   }
 
-  const maand = await kiesMaand();
-  if (maand == null) {
+  const maanden = await kiesMaanden();
+  if (maanden == null) {
     status.className = 'msg info';
     status.textContent = 'Import geannuleerd.';
     return;
@@ -406,13 +418,21 @@ async function verwerkExport(file, root, status) {
   status.textContent = 'Verwerken…';
 
   const schooljaar = getHuidigSchooljaar();
+  const dagprijs = Number(schooljaar.tso_dagprijs) || 0;
   const groepen = await getGroepen(schooljaar.id);
   const groepNaam = new Map(groepen.map((g) => [g.id, g.naam]));
+
+  // Verschuldigd bedrag per groep/maand (voor het splitsen over maanden).
+  const dagenMap = new Map();
+  for (const d of await getTsoDagen(groepen.map((g) => g.id))) {
+    dagenMap.set(`${d.groep_id}:${d.maand}`, d.dagen);
+  }
 
   // Onze (versleutelde) leerlingen ontsleutelen om op naam+groep te matchen.
   // Twee sleutels: exact (volledige naam) en los (voornaam + achternaam-kern),
   // zodat tussenvoegsels aan beide kanten niet uitmaken.
   const leerlingRows = await getLeerlingen(groepen.map((g) => g.id));
+  const leerlingGroep = new Map(leerlingRows.map((r) => [r.id, r.groep_id]));
   const exactMap = new Map();
   const losMap = new Map();
   const losDubbel = new Set();
@@ -446,11 +466,25 @@ async function verwerkExport(file, root, status) {
     perLeerling.set(id, (perLeerling.get(id) || 0) + row.bedrag);
   }
 
-  const betalingen = [...perLeerling.entries()].map(([leerling_id, som]) => ({
-    leerling_id,
-    maand,
-    bedrag: Math.round(som * 100) / 100,
-  }));
+  // Verdeel elke betaling over de gekozen maanden. Eerdere maanden worden tot
+  // hun verschuldigde bedrag gevuld; de laatste maand krijgt de rest.
+  const betalingen = [];
+  for (const [leerling_id, som] of perLeerling) {
+    const groepId = leerlingGroep.get(leerling_id);
+    let rest = Math.round(som * 100) / 100;
+    maanden.forEach((m, i) => {
+      let bedrag;
+      if (i === maanden.length - 1) {
+        bedrag = rest;
+      } else {
+        const verschuldigd = (dagenMap.get(`${groepId}:${m}`) || 0) * dagprijs;
+        bedrag = Math.min(rest, verschuldigd);
+      }
+      bedrag = Math.round(bedrag * 100) / 100;
+      rest = Math.round((rest - bedrag) * 100) / 100;
+      betalingen.push({ leerling_id, maand: m, bedrag });
+    });
+  }
 
   try {
     await upsertBetalingen(betalingen);
@@ -461,15 +495,20 @@ async function verwerkExport(file, root, status) {
     return;
   }
 
+  const maandNamen = maanden.map((m) => MAANDEN[m - 1]).join(', ');
   status.className = 'msg success';
-  status.textContent = `Maand ${MAANDEN[maand - 1]}: ${betalingen.length} betaling(en) verwerkt${
+  status.textContent = `${maandNamen}: ${perLeerling.size} leerling(en) verwerkt${
     nietGevonden.length ? `, ${nietGevonden.length} niet gekoppeld` : ''
   }.`;
 
   root.innerHTML = `
     <div class="kaart">
-      <h2>Betalingen · ${escapeHtml(MAANDEN[maand - 1])}</h2>
-      <p class="muted">De bedragen staan nu bij de juiste leerlingen op de groepspagina's.</p>
+      <h2>Betalingen · ${escapeHtml(maandNamen)}</h2>
+      <p class="muted">${
+        maanden.length > 1
+          ? 'De betalingen zijn over de gekozen maanden verdeeld en staan bij de juiste leerlingen op de groepspagina\'s.'
+          : 'De bedragen staan nu bij de juiste leerlingen op de groepspagina\'s.'
+      }</p>
       ${
         nietGevonden.length
           ? `<details style="margin-top:8px">

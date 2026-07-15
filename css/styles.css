@@ -994,6 +994,23 @@ body {
 }
 .inline-form input:focus { outline: 2px solid var(--paars-licht); border-color: var(--paars); }
 
+/* Maand-keuze in de import-popup */
+.maand-keuze {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px 14px;
+  text-align: left;
+}
+.maand-optie {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: var(--tekst);
+  padding: 3px 0;
+  cursor: pointer;
+}
+
 /* Encryptie-gate (setup / ontgrendelen) */
 .gate-overlay {
   position: fixed;
