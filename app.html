@@ -30,6 +30,16 @@
 
     <div class="hoofd">
       <header class="topbar">
+        <div class="topbar-zoek">
+          <svg class="zoek-icoon" width="15" height="15" viewBox="0 0 24 24" fill="none"
+               stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
+          </svg>
+          <input type="text" id="zoek-leerling" placeholder="Zoek leerling…" autocomplete="off" />
+          <div class="zoek-resultaat" id="zoek-resultaat" hidden></div>
+        </div>
+
+        <div class="topbar-rechts">
         <label class="schooljaar-kiezer">
           <span>Schooljaar</span>
           <select id="schooljaar-select"></select>
@@ -54,6 +64,7 @@
             <line x1="12" y1="3" x2="12" y2="15" />
           </svg>
         </a>
+        </div>
       </header>
 
       <main class="content" id="content">

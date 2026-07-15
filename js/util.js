@@ -1,3 +1,19 @@
+// Pseudoniem "Voornaam A." — initiaal van de achternaam-kern (laatste woord).
+export function pseudoniem(v, a) {
+  const kern = (a || '').trim().split(/\s+/).pop();
+  return kern ? `${v} ${kern[0].toUpperCase()}.` : v;
+}
+
+// Normaliseert voor zoeken: accenten weg, kleine letters, spaties samengevoegd.
+export function normaliseer(s) {
+  return String(s || '')
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 export function escapeAttr(s) {
   return String(s || '')
     .replace(/&/g, '&amp;')

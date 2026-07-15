@@ -3,12 +3,13 @@ import {
   getGroepen,
   getInstellingen,
   getSchooljaren,
+  getLeerlingen,
   addOvergemaakt,
   getOvergemaaktOpmerkingen,
 } from './data.js';
 import { MAANDEN } from './config.js';
-import { parseBedrag, escapeAttr } from './util.js';
-import { restoreKey, isUnlocked, lock } from './crypto.js';
+import { parseBedrag, escapeAttr, pseudoniem, normaliseer } from './util.js';
+import { restoreKey, isUnlocked, lock, decryptText } from './crypto.js';
 import {
   setHuidigSchooljaar,
   getHuidigSchooljaar,
@@ -25,6 +26,10 @@ const navGroepen = document.getElementById('nav-groepen');
 const logoutBtn = document.getElementById('logout-btn');
 const schooljaarSelect = document.getElementById('schooljaar-select');
 const betalingBtn = document.getElementById('betaling-btn');
+const zoekInput = document.getElementById('zoek-leerling');
+const zoekResultaat = document.getElementById('zoek-resultaat');
+
+let zoekIndex = null; // gecachte, ontsleutelde leerlingenlijst (per schooljaar)
 
 function parseRoute() {
   const raw = window.location.hash.replace(/^#\//, '');
@@ -79,6 +84,7 @@ async function render() {
 
 // Laadt de schooljaren en vult de switcher. Kiest het opgeslagen jaar of het nieuwste.
 async function laadSchooljaren(voorkeurId) {
+  zoekIndex = null; // andere leerlingen bij ander schooljaar
   const jaren = await getSchooljaren();
   schooljaarSelect.innerHTML = jaren
     .map((s) => `<option value="${s.id}">${s.naam}</option>`)
@@ -191,6 +197,77 @@ async function openBetalingModal() {
 }
 
 betalingBtn.addEventListener('click', openBetalingModal);
+
+// --- Leerling zoeken in de header --------------------------------------
+async function laadZoekIndex() {
+  if (zoekIndex) return zoekIndex;
+  const sj = getHuidigSchooljaar();
+  if (!sj || !isUnlocked()) return [];
+  const groepen = await getGroepen(sj.id);
+  const groepNaam = new Map(groepen.map((g) => [g.id, g.naam]));
+  const rows = await getLeerlingen(groepen.map((g) => g.id));
+  const lijst = [];
+  for (const r of rows) {
+    let v = '';
+    let a = '';
+    try {
+      ({ v, a } = JSON.parse(await decryptText(r.enc_naam, r.iv)));
+    } catch {
+      /* onleesbaar */
+    }
+    lijst.push({
+      voornaam: v,
+      achternaam: a,
+      groep_id: r.groep_id,
+      groep: groepNaam.get(r.groep_id) || '',
+      zoek: normaliseer(`${v} ${a}`),
+    });
+  }
+  zoekIndex = lijst;
+  return lijst;
+}
+
+zoekInput.addEventListener('input', async () => {
+  const q = normaliseer(zoekInput.value);
+  if (!q) {
+    zoekResultaat.hidden = true;
+    zoekResultaat.innerHTML = '';
+    return;
+  }
+  const idx = await laadZoekIndex();
+  const treffers = idx.filter((l) => l.zoek.includes(q)).slice(0, 10);
+  zoekResultaat.innerHTML = treffers.length
+    ? treffers
+        .map(
+          (l) => `<button class="zoek-item" data-groep="${l.groep_id}">
+            <span>${escapeAttr(pseudoniem(l.voornaam, l.achternaam))}</span>
+            <span class="muted">${escapeAttr(l.groep)}</span>
+          </button>`
+        )
+        .join('')
+    : '<div class="zoek-leeg">Geen leerling gevonden.</div>';
+  zoekResultaat.hidden = false;
+});
+
+zoekResultaat.addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-groep]');
+  if (!btn) return;
+  zoekInput.value = '';
+  zoekResultaat.hidden = true;
+  zoekResultaat.innerHTML = '';
+  window.location.hash = `#/groep/${btn.dataset.groep}`;
+});
+
+zoekInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    zoekInput.value = '';
+    zoekResultaat.hidden = true;
+  }
+});
+
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.topbar-zoek')) zoekResultaat.hidden = true;
+});
 
 // Zorgt dat de encryptie is ingesteld (eerste keer) en ontgrendeld.
 async function ontgrendelIndienNodig() {

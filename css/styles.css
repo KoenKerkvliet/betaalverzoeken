@@ -128,11 +128,40 @@ body {
   height: 52px;
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: space-between;
   gap: 14px;
   padding: 0 24px;
   background: var(--wit);
   border-bottom: 1px solid var(--rand);
+}
+.topbar-rechts { display: flex; align-items: center; gap: 14px; }
+
+/* Leerling-zoeker in de header */
+.topbar-zoek { position: relative; display: flex; align-items: center; }
+.zoek-icoon { position: absolute; left: 10px; color: var(--tekst-zacht); pointer-events: none; }
+#zoek-leerling {
+  width: 240px;
+  padding: 8px 10px 8px 32px;
+  border: 1px solid var(--rand);
+  border-radius: 8px;
+  font-family: inherit;
+  font-size: 14px;
+  background: var(--wit);
+}
+#zoek-leerling:focus { outline: 2px solid var(--paars-licht); border-color: var(--paars); }
+.zoek-resultaat {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 40;
+  background: var(--wit);
+  border: 1px solid var(--rand);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
+  margin-top: 4px;
+  max-height: 320px;
+  overflow-y: auto;
 }
 .topbar-knop {
   display: inline-flex;
@@ -1031,6 +1060,8 @@ input[type="file"] { font-family: inherit; font-size: 14px; }
   }
   .nav, .sidebar-bottom { flex-direction: row; border: none; padding-top: 0; }
   .hoofd { height: auto; }
-  .topbar { padding: 0 16px; }
+  .topbar { padding: 0 12px; gap: 8px; }
+  #zoek-leerling { width: 150px; }
+  .topbar-rechts { gap: 8px; }
   .content { padding: 20px 16px; overflow: visible; }
 }
