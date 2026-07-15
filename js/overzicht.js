@@ -6,7 +6,7 @@ import {
   upsertTsoDagen,
   getLeerlingen,
   setLeergeld,
-  getBetalingen,
+  getBetalingenPerMaand,
   getOvergemaakt,
   upsertOvergemaakt,
 } from './data.js';
@@ -127,15 +127,12 @@ export async function renderOverzicht(root) {
     }
   }
 
-  // Schoolbreed binnengekomen per maand (som van alle betalingen).
+  // Schoolbreed binnengekomen per maand (server-side opgeteld).
   const schoolMaand = {};
   let schoolTotaal = 0;
-  if (alleLeerlingen.length) {
-    const alleBetalingen = await getBetalingen(alleLeerlingen.map((l) => l.id));
-    for (const b of alleBetalingen) {
-      schoolMaand[b.maand] = (schoolMaand[b.maand] || 0) + Number(b.bedrag);
-      schoolTotaal += Number(b.bedrag);
-    }
+  for (const r of await getBetalingenPerMaand(schooljaar.id)) {
+    schoolMaand[r.maand] = Number(r.totaal);
+    schoolTotaal += Number(r.totaal);
   }
 
   // Handmatig ingevoerde "overgemaakt"-bedragen per maand.

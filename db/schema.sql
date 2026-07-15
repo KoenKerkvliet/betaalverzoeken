@@ -140,3 +140,20 @@ begin
       for all to authenticated using (true) with check (true);
   end if;
 end $$;
+
+-- ===========================================================================
+-- Aggregatie-functie: schoolbreed betaald per maand (vermijdt de 1000-rijen
+-- limiet van de REST-API door server-side op te tellen).
+-- ===========================================================================
+create or replace function public.betalingen_per_maand(p_schooljaar_id uuid)
+returns table(maand smallint, totaal numeric)
+language sql
+stable
+as $$
+  select b.maand, sum(b.bedrag)::numeric as totaal
+  from public.betalingen b
+  join public.leerlingen l on l.id = b.leerling_id
+  join public.groepen g on g.id = l.groep_id
+  where g.schooljaar_id = p_schooljaar_id
+  group by b.maand;
+$$;

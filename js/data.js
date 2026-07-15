@@ -179,6 +179,15 @@ export async function upsertBetalingen(rows) {
   if (error) throw error;
 }
 
+// Schoolbreed totaal per maand (server-side opgeteld, geen 1000-rijen-limiet).
+export async function getBetalingenPerMaand(schooljaarId) {
+  const { data, error } = await supabase.rpc('betalingen_per_maand', {
+    p_schooljaar_id: schooljaarId,
+  });
+  if (error) throw error;
+  return data ?? [];
+}
+
 // --- Overgemaakt (handmatig, per schooljaar per maand) --------------------
 
 export async function getOvergemaakt(schooljaarId) {
