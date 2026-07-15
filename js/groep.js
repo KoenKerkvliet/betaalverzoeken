@@ -7,6 +7,7 @@ import {
   deleteLeerling,
   getBetalingen,
   updateBetaling,
+  upsertBetaling,
   deleteBetaling,
   updateLeerling,
   getNotities,
@@ -119,10 +120,8 @@ export async function renderGroep(root, id) {
       const inhoud = betaald != null ? euro.format(betaald) : '<span class="leeg">—</span>';
       const st = celStatus(l, maand);
       const cls = st.klasse ? ' ' + st.klasse : '';
-      const klikbaar = rec ? ' klikbaar' : '';
-      const extra = rec ? ` data-betaling-id="${rec.id}"` : '';
       const titel = st.title ? ` title="${escapeAttr(st.title)}"` : '';
-      return `<td class="cel bedrag-cel${betaaldCls}${cls}${klikbaar}" data-leerling="${l.id}" data-maand="${maand}"${extra}${titel}>${inhoud}</td>`;
+      return `<td class="cel bedrag-cel${betaaldCls}${cls} klikbaar" data-leerling="${l.id}" data-maand="${maand}"${titel}>${inhoud}</td>`;
     }).join('');
 
   // Notitie-cel: icoon + aantal als er notities zijn, anders een +.
@@ -475,19 +474,21 @@ export async function renderGroep(root, id) {
 
   function openBedragPop(td) {
     sluitBedragPop();
-    const rec = betaalRecord.get(`${td.dataset.leerling}:${td.dataset.maand}`);
-    if (!rec) return;
+    const leerlingId = td.dataset.leerling;
+    const maand = Number(td.dataset.maand);
+    const rec = betaalRecord.get(`${leerlingId}:${maand}`);
 
     bedragPop = document.createElement('div');
     bedragPop.className = 'bedrag-popover';
     bedragPop.tabIndex = -1;
     bedragPop.innerHTML = `
       <label class="bp-veld">Bedrag (€)
-        <input type="text" class="bp-bedrag" inputmode="decimal" value="${String(rec.bedrag).replace('.', ',')}" />
+        <input type="text" class="bp-bedrag" inputmode="decimal" placeholder="0,00"
+               value="${rec ? String(rec.bedrag).replace('.', ',') : ''}" />
       </label>
       <div class="bp-acties">
         <button type="button" class="btn btn-primary bp-opslaan">Opslaan</button>
-        <button type="button" class="btn btn-ghost btn-danger bp-verwijder">Verwijderen</button>
+        ${rec ? '<button type="button" class="btn btn-ghost btn-danger bp-verwijder">Verwijderen</button>' : ''}
       </div>`;
     document.body.appendChild(bedragPop);
 
@@ -507,24 +508,37 @@ export async function renderGroep(root, id) {
     });
 
     bedragPop.querySelector('.bp-opslaan').addEventListener('click', async () => {
-      const bedrag = parseBedrag(inp.value);
+      const ruw = inp.value.trim();
+      const bedrag = parseBedrag(ruw);
       try {
-        await updateBetaling(rec.id, bedrag);
+        if (rec) {
+          await updateBetaling(rec.id, bedrag);
+        } else {
+          if (ruw === '') {
+            sluitBedragPop();
+            return;
+          }
+          await upsertBetaling(leerlingId, maand, bedrag);
+        }
       } catch (e) {
         console.error(e);
       }
       sluitBedragPop();
       await herrenderMetScroll();
     });
-    bedragPop.querySelector('.bp-verwijder').addEventListener('click', async () => {
-      try {
-        await deleteBetaling(rec.id);
-      } catch (e) {
-        console.error(e);
-      }
-      sluitBedragPop();
-      await herrenderMetScroll();
-    });
+
+    const verwijderKnop = bedragPop.querySelector('.bp-verwijder');
+    if (verwijderKnop) {
+      verwijderKnop.addEventListener('click', async () => {
+        try {
+          await deleteBetaling(rec.id);
+        } catch (e) {
+          console.error(e);
+        }
+        sluitBedragPop();
+        await herrenderMetScroll();
+      });
+    }
   }
 
   root.querySelector('.overzicht-tabel tbody').addEventListener('click', (e) => {

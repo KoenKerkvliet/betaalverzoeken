@@ -209,6 +209,14 @@ export async function updateBetaling(id, bedrag) {
   if (error) throw error;
 }
 
+// Voegt een betaling toe (of werkt bij) voor één leerling/maand.
+export async function upsertBetaling(leerling_id, maand, bedrag) {
+  const { error } = await supabase
+    .from('betalingen')
+    .upsert({ leerling_id, maand, bedrag }, { onConflict: 'leerling_id,maand' });
+  if (error) throw error;
+}
+
 export async function deleteBetaling(id) {
   const { error } = await supabase.from('betalingen').delete().eq('id', id);
   if (error) throw error;
