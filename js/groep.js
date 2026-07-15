@@ -6,6 +6,7 @@ import {
   insertLeerlingen,
   deleteLeerling,
   getBetalingen,
+  updateLeerling,
 } from './data.js';
 import { encryptText, decryptText, isUnlocked } from './crypto.js';
 import { getHuidigSchooljaar } from './state.js';
@@ -40,11 +41,16 @@ export async function renderGroep(root, id) {
   const rijenData = await getLeerlingen(id);
   const leerlingen = [];
   for (const r of rijenData) {
+    const extra = {
+      leergeld: r.leergeld,
+      instroom_maand: r.instroom_maand,
+      uitgesloten_maanden: r.uitgesloten_maanden || [],
+    };
     try {
       const { v, a } = JSON.parse(await decryptText(r.enc_naam, r.iv));
-      leerlingen.push({ id: r.id, voornaam: v, achternaam: a, leergeld: r.leergeld });
+      leerlingen.push({ id: r.id, voornaam: v, achternaam: a, ...extra });
     } catch {
-      leerlingen.push({ id: r.id, voornaam: '⚠︎ onleesbaar', achternaam: '', leergeld: r.leergeld });
+      leerlingen.push({ id: r.id, voornaam: '⚠︎ onleesbaar', achternaam: '', ...extra });
     }
   }
   leerlingen.sort((x, y) => x.voornaam.localeCompare(y.voornaam, 'nl'));
@@ -66,13 +72,23 @@ export async function renderGroep(root, id) {
     return `<td class="cel bedrag-cel maand-totaal">${t ? euro.format(t) : '<span class="leeg">—</span>'}</td>`;
   }).join('');
 
+  // Arceerklasse per leerling per maand: lichtgrijs vóór instroom, lichtblauw
+  // voor uitgesloten maanden.
+  const arceerKlasse = (l, maand) => {
+    if (l.instroom_maand && maand < l.instroom_maand) return ' voor-instroom';
+    if ((l.uitgesloten_maanden || []).includes(maand)) return ' uitgesloten';
+    return '';
+  };
+
   // Cel per leerling per maand: alleen betaalde (geïmporteerde) bedragen tonen
   const cellenVoor = (l) =>
     MAANDEN.map((_, i) => {
-      const betaald = betaalMap.get(`${l.id}:${i + 1}`);
-      return betaald != null
-        ? `<td class="cel bedrag-cel betaald">${euro.format(betaald)}</td>`
-        : `<td class="cel bedrag-cel"><span class="leeg">—</span></td>`;
+      const maand = i + 1;
+      const betaald = betaalMap.get(`${l.id}:${maand}`);
+      const betaaldCls = betaald != null ? ' betaald' : '';
+      const inhoud = betaald != null ? euro.format(betaald) : '<span class="leeg">—</span>';
+      return `<td class="cel bedrag-cel${betaaldCls}${arceerKlasse(l, maand)}"
+                  data-leerling="${l.id}" data-maand="${maand}">${inhoud}</td>`;
     }).join('');
 
   const leerlingRijen = leerlingen
@@ -81,9 +97,11 @@ export async function renderGroep(root, id) {
       <tr class="${l.leergeld ? 'leergeld-rij' : ''}">
         <th class="groep-cel" scope="row">
           <div class="leerling-cel">
-            <span>${pseudoniem(l.voornaam, l.achternaam)}${
+            <button type="button" class="leerling-knop" data-leerling="${l.id}">
+              <span class="ll-naam">${pseudoniem(l.voornaam, l.achternaam)}</span>${
         l.leergeld ? ' <span class="leergeld-badge">Leergeld</span>' : ''
-      }</span>
+      }
+            </button>
             <button class="mini-x" data-del="${l.id}" title="Leerling verwijderen">✕</button>
           </div>
         </th>
@@ -97,7 +115,8 @@ export async function renderGroep(root, id) {
       <h1>Groep ${groep.naam}</h1>
       <p class="muted">${leerlingen.length} leerling(en) · schooljaar ${schooljaar.naam} ·
         <span class="legenda"><span class="stip betaald"></span> betaald</span>
-        · onderste kop-rij = totaal binnengekomen per maand</p>
+        <span class="legenda"><span class="swatch voor-instroom"></span> vóór instroom</span>
+        <span class="legenda"><span class="swatch uitgesloten"></span> uitgesloten</span></p>
     </header>
 
     <div class="tabel-wrap">
@@ -173,11 +192,131 @@ export async function renderGroep(root, id) {
   // Verwijderen
   root.querySelectorAll('[data-del]').forEach((btn) => {
     btn.addEventListener('click', async () => {
-      const naam = btn.closest('tr').querySelector('.leerling-cel span').textContent.trim();
+      const naam = btn.closest('tr').querySelector('.ll-naam').textContent.trim();
       if (window.confirm(`Leerling "${naam}" verwijderen?`)) {
         await deleteLeerling(btn.dataset.del);
         await renderGroep(root, id);
       }
+    });
+  });
+
+  // --- Uitvouwmenu per leerling (instroom / maanden uitsluiten) -----------
+  let menuEl = null;
+  function sluitMenu() {
+    if (menuEl) {
+      menuEl.remove();
+      menuEl = null;
+    }
+  }
+
+  // Werkt de arcering van één leerling-rij live bij (zonder her-render).
+  function pasArceringToe(l) {
+    for (let m = 1; m <= MAANDEN.length; m++) {
+      const td = root.querySelector(`td[data-leerling="${l.id}"][data-maand="${m}"]`);
+      if (!td) continue;
+      td.classList.remove('voor-instroom', 'uitgesloten');
+      if (l.instroom_maand && m < l.instroom_maand) td.classList.add('voor-instroom');
+      else if ((l.uitgesloten_maanden || []).includes(m)) td.classList.add('uitgesloten');
+    }
+  }
+
+  function menuHtml(l) {
+    const instroomOpties = [
+      `<label class="menu-optie"><input type="radio" name="instroom-${l.id}" value=""${
+        !l.instroom_maand ? ' checked' : ''
+      }> Vanaf begin</label>`,
+      ...MAANDEN.map(
+        (m, i) =>
+          `<label class="menu-optie"><input type="radio" name="instroom-${l.id}" value="${i + 1}"${
+            l.instroom_maand === i + 1 ? ' checked' : ''
+          }> ${m}</label>`
+      ),
+    ].join('');
+    const uitsluitOpties = MAANDEN.map(
+      (m, i) =>
+        `<label class="menu-optie"><input type="checkbox" value="${i + 1}"${
+          (l.uitgesloten_maanden || []).includes(i + 1) ? ' checked' : ''
+        }> ${m}</label>`
+    ).join('');
+
+    return `
+      <div class="menu-sectie">
+        <button type="button" class="menu-kop" data-sectie="instroom">Instroom vanaf <span>▾</span></button>
+        <div class="menu-inhoud" data-inhoud="instroom" hidden>${instroomOpties}</div>
+      </div>
+      <div class="menu-sectie">
+        <button type="button" class="menu-kop" data-sectie="uitsluiten">Maanden uitsluiten <span>▾</span></button>
+        <div class="menu-inhoud" data-inhoud="uitsluiten" hidden>${uitsluitOpties}</div>
+      </div>`;
+  }
+
+  function openMenu(l, knop) {
+    sluitMenu();
+    menuEl = document.createElement('div');
+    menuEl.className = 'leerling-menu';
+    menuEl.tabIndex = -1;
+    menuEl.innerHTML = menuHtml(l);
+    document.body.appendChild(menuEl);
+
+    const r = knop.getBoundingClientRect();
+    menuEl.style.top = `${r.bottom + 4}px`;
+    menuEl.style.left = `${Math.min(r.left, window.innerWidth - 256)}px`;
+
+    // Accordion
+    menuEl.querySelectorAll('.menu-kop').forEach((kop) => {
+      kop.addEventListener('click', () => {
+        const inh = menuEl.querySelector(`[data-inhoud="${kop.dataset.sectie}"]`);
+        inh.hidden = !inh.hidden;
+      });
+    });
+
+    // Instroom (radio)
+    menuEl.querySelectorAll(`input[name="instroom-${l.id}"]`).forEach((radio) => {
+      radio.addEventListener('change', async () => {
+        l.instroom_maand = radio.value === '' ? null : Number(radio.value);
+        pasArceringToe(l);
+        try {
+          await updateLeerling(l.id, { instroom_maand: l.instroom_maand });
+        } catch (e) {
+          console.error(e);
+        }
+      });
+    });
+
+    // Maanden uitsluiten (checkbox)
+    menuEl.querySelectorAll('[data-inhoud="uitsluiten"] input[type="checkbox"]').forEach((cb) => {
+      cb.addEventListener('change', async () => {
+        l.uitgesloten_maanden = [
+          ...menuEl.querySelectorAll('[data-inhoud="uitsluiten"] input:checked'),
+        ]
+          .map((x) => Number(x.value))
+          .sort((a, b) => a - b);
+        pasArceringToe(l);
+        try {
+          await updateLeerling(l.id, { uitgesloten_maanden: l.uitgesloten_maanden });
+        } catch (e) {
+          console.error(e);
+        }
+      });
+    });
+
+    menuEl.addEventListener('focusout', (e) => {
+      if (!menuEl.contains(e.relatedTarget)) sluitMenu();
+    });
+    menuEl.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        sluitMenu();
+        knop.focus();
+      }
+    });
+
+    menuEl.focus();
+  }
+
+  root.querySelectorAll('.leerling-knop').forEach((knop) => {
+    knop.addEventListener('click', () => {
+      const l = leerlingen.find((x) => x.id === knop.dataset.leerling);
+      if (l) openMenu(l, knop);
     });
   });
 }

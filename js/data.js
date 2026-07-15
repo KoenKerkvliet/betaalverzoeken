@@ -153,6 +153,12 @@ export async function setLeergeld(id, velden) {
   if (error) throw error;
 }
 
+// Algemene update van een leerling (bijv. instroom_maand, uitgesloten_maanden).
+export async function updateLeerling(id, velden) {
+  const { error } = await supabase.from('leerlingen').update(velden).eq('id', id);
+  if (error) throw error;
+}
+
 // --- Betalingen (per leerling per maand) ----------------------------------
 
 export async function getBetalingen(leerlingIds) {

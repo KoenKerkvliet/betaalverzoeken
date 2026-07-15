@@ -509,6 +509,9 @@ body {
 .bedrag-cel .leeg { color: #cbd5e1; }
 .bedrag-cel.betaald { color: var(--groen); font-weight: 600; }
 .bedrag-cel.open { color: var(--tekst-zacht); }
+/* Arcering per leerling: vóór instroom (lichtgrijs) / uitgesloten (lichtblauw) */
+.bedrag-cel.voor-instroom { background: #f1f5f9; }
+.bedrag-cel.uitgesloten { background: #dbeafe; }
 
 /* Totaalrij "Binnengekomen" per maand */
 .maand-totaal-rij .groep-cel,
@@ -547,6 +550,9 @@ body {
 .stip { display: inline-block; width: 8px; height: 8px; border-radius: 50%; }
 .stip.betaald { background: var(--groen); }
 .stip.open { background: var(--tekst-zacht); }
+.swatch { display: inline-block; width: 11px; height: 11px; border-radius: 3px; border: 1px solid var(--rand); }
+.swatch.voor-instroom { background: #f1f5f9; }
+.swatch.uitgesloten { background: #dbeafe; }
 .leerling-cel {
   display: flex;
   align-items: center;
@@ -564,6 +570,69 @@ body {
   border-radius: 4px;
 }
 .mini-x:hover { color: var(--rood); background: #fef2f2; }
+
+/* Klikbare leerlingnaam + uitvouwmenu */
+.leerling-knop {
+  background: none;
+  border: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+  padding: 0;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.leerling-knop:hover .ll-naam { color: var(--paars); text-decoration: underline; }
+.leerling-menu {
+  position: fixed;
+  z-index: 60;
+  width: 232px;
+  background: var(--wit);
+  border: 1px solid var(--rand);
+  border-radius: 10px;
+  box-shadow: 0 10px 34px rgba(0, 0, 0, 0.14);
+  padding: 6px;
+}
+.leerling-menu:focus { outline: none; }
+.menu-kop {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  background: none;
+  border: none;
+  font: inherit;
+  font-weight: 600;
+  color: var(--tekst);
+  text-align: left;
+  padding: 9px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.menu-kop:hover { background: #f3f4f6; }
+.menu-kop span { color: var(--tekst-zacht); font-size: 11px; }
+.menu-inhoud {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 2px 8px 8px;
+  max-height: 240px;
+  overflow-y: auto;
+}
+.menu-optie {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  padding: 4px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.menu-optie:hover { background: #f7f7fb; }
 
 .save-status {
   display: inline-block;
