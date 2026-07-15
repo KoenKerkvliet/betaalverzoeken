@@ -17,9 +17,10 @@ export function parseEdex(xmlTekst) {
     return { fout: 'Dit is geen EDEX-bestand (verwacht een <EDEX>-element).' };
   }
 
-  // Groep-key -> naam
+  // Groep-key -> naam. Let op: scope naar EDEX > groepen, anders matcht ook
+  // het <groepen>-blok binnen een leerkracht (die lege groep-refs bevat).
   const groepNaam = new Map();
-  doc.querySelectorAll('groepen > groep').forEach((g) => {
+  doc.querySelectorAll('EDEX > groepen > groep').forEach((g) => {
     const key = g.getAttribute('key');
     const naam = g.querySelector('naam')?.textContent?.trim() || '';
     if (key) groepNaam.set(key, naam);
@@ -27,7 +28,7 @@ export function parseEdex(xmlTekst) {
 
   // Leerlingen (leerkrachten expliciet overgeslagen)
   const leerlingen = [];
-  doc.querySelectorAll('leerlingen > leerling').forEach((l) => {
+  doc.querySelectorAll('EDEX > leerlingen > leerling').forEach((l) => {
     const achternaam = l.querySelector('achternaam')?.textContent?.trim() || '';
     const roepnaam = l.querySelector('roepnaam')?.textContent?.trim() || '';
     const voornamen = l.querySelector('voornamen')?.textContent?.trim() || '';
