@@ -232,12 +232,15 @@ export async function renderGroep(root, id) {
           }> ${m}</label>`
       ),
     ].join('');
-    const uitsluitOpties = MAANDEN.map(
-      (m, i) =>
-        `<label class="menu-optie"><input type="checkbox" value="${i + 1}"${
-          (l.uitgesloten_maanden || []).includes(i + 1) ? ' checked' : ''
-        }> ${m}</label>`
-    ).join('');
+    const uitsluitOpties =
+      `<label class="menu-optie"><input type="checkbox" class="alle-maanden"> <strong>Alle maanden</strong></label>` +
+      `<hr class="menu-scheiding" />` +
+      MAANDEN.map(
+        (m, i) =>
+          `<label class="menu-optie"><input type="checkbox" class="maand-cb" value="${i + 1}"${
+            (l.uitgesloten_maanden || []).includes(i + 1) ? ' checked' : ''
+          }> ${m}</label>`
+      ).join('');
 
     return `
       <div class="menu-sectie">
@@ -258,15 +261,26 @@ export async function renderGroep(root, id) {
     menuEl.innerHTML = menuHtml(l);
     document.body.appendChild(menuEl);
 
-    const r = knop.getBoundingClientRect();
-    menuEl.style.top = `${r.bottom + 4}px`;
-    menuEl.style.left = `${Math.min(r.left, window.innerWidth - 256)}px`;
+    // Houdt het menu binnen het scherm (opent naar boven als het niet past).
+    function positioneer() {
+      const r = knop.getBoundingClientRect();
+      const marge = 8;
+      const h = menuEl.offsetHeight;
+      let top = r.bottom + 4;
+      if (top + h > window.innerHeight - marge) {
+        top = Math.max(marge, window.innerHeight - marge - h);
+      }
+      menuEl.style.top = `${top}px`;
+      menuEl.style.left = `${Math.min(r.left, window.innerWidth - 256)}px`;
+    }
+    positioneer();
 
     // Accordion
     menuEl.querySelectorAll('.menu-kop').forEach((kop) => {
       kop.addEventListener('click', () => {
         const inh = menuEl.querySelector(`[data-inhoud="${kop.dataset.sectie}"]`);
         inh.hidden = !inh.hidden;
+        positioneer();
       });
     });
 
@@ -283,22 +297,26 @@ export async function renderGroep(root, id) {
       });
     });
 
-    // Maanden uitsluiten (checkbox)
-    menuEl.querySelectorAll('[data-inhoud="uitsluiten"] input[type="checkbox"]').forEach((cb) => {
-      cb.addEventListener('change', async () => {
-        l.uitgesloten_maanden = [
-          ...menuEl.querySelectorAll('[data-inhoud="uitsluiten"] input:checked'),
-        ]
-          .map((x) => Number(x.value))
-          .sort((a, b) => a - b);
-        pasArceringToe(l);
-        try {
-          await updateLeerling(l.id, { uitgesloten_maanden: l.uitgesloten_maanden });
-        } catch (e) {
-          console.error(e);
-        }
-      });
+    // Maanden uitsluiten (checkboxes + "Alle maanden")
+    const alleCb = menuEl.querySelector('.alle-maanden');
+    const maandCbs = [...menuEl.querySelectorAll('.maand-cb')];
+    function syncUitsluiten() {
+      l.uitgesloten_maanden = maandCbs
+        .filter((c) => c.checked)
+        .map((c) => Number(c.value))
+        .sort((a, b) => a - b);
+      alleCb.checked = maandCbs.every((c) => c.checked);
+      pasArceringToe(l);
+      updateLeerling(l.id, { uitgesloten_maanden: l.uitgesloten_maanden }).catch((e) =>
+        console.error(e)
+      );
+    }
+    alleCb.checked = maandCbs.every((c) => c.checked);
+    alleCb.addEventListener('change', () => {
+      maandCbs.forEach((c) => (c.checked = alleCb.checked));
+      syncUitsluiten();
     });
+    maandCbs.forEach((cb) => cb.addEventListener('change', syncUitsluiten));
 
     menuEl.addEventListener('focusout', (e) => {
       if (!menuEl.contains(e.relatedTarget)) sluitMenu();

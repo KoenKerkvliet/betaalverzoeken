@@ -590,6 +590,8 @@ body {
   position: fixed;
   z-index: 60;
   width: 232px;
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
   background: var(--wit);
   border: 1px solid var(--rand);
   border-radius: 10px;
@@ -619,9 +621,8 @@ body {
   flex-direction: column;
   gap: 1px;
   padding: 2px 8px 8px;
-  max-height: 240px;
-  overflow-y: auto;
 }
+.menu-scheiding { border: none; border-top: 1px solid var(--rand); margin: 4px 0; }
 .menu-optie {
   display: flex;
   align-items: center;
