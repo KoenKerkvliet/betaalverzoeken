@@ -6,10 +6,13 @@ import {
   insertLeerlingen,
   deleteLeerling,
   getBetalingen,
+  updateBetaling,
+  deleteBetaling,
   updateLeerling,
 } from './data.js';
 import { encryptText, decryptText, isUnlocked } from './crypto.js';
 import { getHuidigSchooljaar } from './state.js';
+import { parseBedrag } from './util.js';
 
 // Maakt van {voornaam, achternaam} het pseudoniem "Voornaam A." — de initiaal
 // is die van de achternaam-kern (laatste woord), dus tussenvoegsels tellen niet.
@@ -76,12 +79,12 @@ export async function renderGroep(root, id) {
   }
   leerlingen.sort((x, y) => x.voornaam.localeCompare(y.voornaam, 'nl'));
 
-  // Betaalde bedragen per leerling per maand + totaal per maand
+  // Betaalde bedragen per leerling per maand (record incl. id) + totaal per maand
   const betalingen = await getBetalingen(leerlingen.map((l) => l.id));
-  const betaalMap = new Map();
+  const betaalRecord = new Map(); // "leerlingId:maand" -> betaling-record
   const maandTotaal = {};
   for (const b of betalingen) {
-    betaalMap.set(`${b.leerling_id}:${b.maand}`, Number(b.bedrag));
+    betaalRecord.set(`${b.leerling_id}:${b.maand}`, b);
     maandTotaal[b.maand] = (maandTotaal[b.maand] || 0) + Number(b.bedrag);
   }
 
@@ -98,14 +101,17 @@ export async function renderGroep(root, id) {
   const cellenVoor = (l) =>
     MAANDEN.map((_, i) => {
       const maand = i + 1;
-      const betaald = betaalMap.get(`${l.id}:${maand}`);
+      const rec = betaalRecord.get(`${l.id}:${maand}`);
+      const betaald = rec ? Number(rec.bedrag) : null;
       // €0,00 = wél een betaalregel maar niet betaald → rood signaal.
       const betaaldCls = betaald == null ? '' : betaald === 0 ? ' niet-betaald' : ' betaald';
       const inhoud = betaald != null ? euro.format(betaald) : '<span class="leeg">—</span>';
       const st = celStatus(l, maand);
       const cls = st.klasse ? ' ' + st.klasse : '';
+      const klikbaar = rec ? ' klikbaar' : '';
+      const extra = rec ? ` data-betaling-id="${rec.id}"` : '';
       const titel = st.title ? ` title="${escapeAttr(st.title)}"` : '';
-      return `<td class="cel bedrag-cel${betaaldCls}${cls}" data-leerling="${l.id}" data-maand="${maand}"${titel}>${inhoud}</td>`;
+      return `<td class="cel bedrag-cel${betaaldCls}${cls}${klikbaar}" data-leerling="${l.id}" data-maand="${maand}"${extra}${titel}>${inhoud}</td>`;
     }).join('');
 
   const leerlingRijen = leerlingen
@@ -423,5 +429,78 @@ export async function renderGroep(root, id) {
       const l = leerlingen.find((x) => x.id === knop.dataset.leerling);
       if (l) openMenu(l, knop);
     });
+  });
+
+  // --- Klik op een bedrag → bewerken / verwijderen -----------------------
+  let bedragPop = null;
+  function sluitBedragPop() {
+    if (bedragPop) {
+      bedragPop.remove();
+      bedragPop = null;
+    }
+  }
+  async function herrenderMetScroll() {
+    const y = root.scrollTop;
+    await renderGroep(root, id);
+    root.scrollTop = y;
+  }
+
+  function openBedragPop(td) {
+    sluitBedragPop();
+    const rec = betaalRecord.get(`${td.dataset.leerling}:${td.dataset.maand}`);
+    if (!rec) return;
+
+    bedragPop = document.createElement('div');
+    bedragPop.className = 'bedrag-popover';
+    bedragPop.tabIndex = -1;
+    bedragPop.innerHTML = `
+      <label class="bp-veld">Bedrag (€)
+        <input type="text" class="bp-bedrag" inputmode="decimal" value="${String(rec.bedrag).replace('.', ',')}" />
+      </label>
+      <div class="bp-acties">
+        <button type="button" class="btn btn-primary bp-opslaan">Opslaan</button>
+        <button type="button" class="btn btn-ghost btn-danger bp-verwijder">Verwijderen</button>
+      </div>`;
+    document.body.appendChild(bedragPop);
+
+    const r = td.getBoundingClientRect();
+    bedragPop.style.top = `${Math.min(r.bottom + 4, window.innerHeight - 130)}px`;
+    bedragPop.style.left = `${Math.min(r.left, window.innerWidth - 212)}px`;
+
+    const inp = bedragPop.querySelector('.bp-bedrag');
+    inp.focus();
+    inp.select();
+
+    bedragPop.addEventListener('focusout', (e) => {
+      if (!bedragPop.contains(e.relatedTarget)) sluitBedragPop();
+    });
+    bedragPop.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') sluitBedragPop();
+    });
+
+    bedragPop.querySelector('.bp-opslaan').addEventListener('click', async () => {
+      const bedrag = parseBedrag(inp.value);
+      try {
+        await updateBetaling(rec.id, bedrag);
+      } catch (e) {
+        console.error(e);
+      }
+      sluitBedragPop();
+      await herrenderMetScroll();
+    });
+    bedragPop.querySelector('.bp-verwijder').addEventListener('click', async () => {
+      try {
+        await deleteBetaling(rec.id);
+      } catch (e) {
+        console.error(e);
+      }
+      sluitBedragPop();
+      await herrenderMetScroll();
+    });
+  }
+
+  root.querySelector('.overzicht-tabel tbody').addEventListener('click', (e) => {
+    const td = e.target.closest('td.bedrag-cel.klikbaar');
+    if (td) openBedragPop(td);
   });
 }

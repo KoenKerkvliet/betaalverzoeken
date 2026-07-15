@@ -179,6 +179,16 @@ export async function upsertBetalingen(rows) {
   if (error) throw error;
 }
 
+export async function updateBetaling(id, bedrag) {
+  const { error } = await supabase.from('betalingen').update({ bedrag }).eq('id', id);
+  if (error) throw error;
+}
+
+export async function deleteBetaling(id) {
+  const { error } = await supabase.from('betalingen').delete().eq('id', id);
+  if (error) throw error;
+}
+
 // Schoolbreed totaal per maand (server-side opgeteld, geen 1000-rijen-limiet).
 export async function getBetalingenPerMaand(schooljaarId) {
   const { data, error } = await supabase.rpc('betalingen_per_maand', {

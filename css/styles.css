@@ -513,6 +513,40 @@ body {
 .bedrag-cel .leeg { color: #cbd5e1; }
 .bedrag-cel.betaald { color: var(--groen); font-weight: 600; }
 .bedrag-cel.open { color: var(--tekst-zacht); }
+.bedrag-cel.klikbaar { cursor: pointer; }
+.bedrag-cel.klikbaar:hover { outline: 2px solid var(--paars-licht); outline-offset: -2px; }
+
+/* Popover om een betaald bedrag te bewerken/verwijderen */
+.bedrag-popover {
+  position: fixed;
+  z-index: 60;
+  width: 200px;
+  background: var(--wit);
+  border: 1px solid var(--rand);
+  border-radius: 10px;
+  box-shadow: 0 10px 34px rgba(0, 0, 0, 0.14);
+  padding: 12px;
+}
+.bedrag-popover:focus { outline: none; }
+.bp-veld {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--tekst-zacht);
+}
+.bp-veld input {
+  padding: 6px 8px;
+  border: 1px solid var(--rand);
+  border-radius: 6px;
+  text-align: right;
+  font-family: inherit;
+  font-size: 14px;
+}
+.bp-veld input:focus { outline: 2px solid var(--paars-licht); border-color: var(--paars); }
+.bp-acties { display: flex; gap: 8px; margin-top: 10px; }
+.bp-acties .btn { padding: 6px 10px; font-size: 13px; }
 /* Arcering per leerling: vóór instroom (grijs) / uitgesloten (blauw) / regeling (rood) */
 .bedrag-cel.voor-instroom { background: #f1f5f9; }
 .bedrag-cel.uitgesloten { background: #dbeafe; }
