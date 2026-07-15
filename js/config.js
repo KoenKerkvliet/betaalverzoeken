@@ -21,3 +21,17 @@ export const MAANDEN = [
   'Mei',
   'Juni/juli',
 ];
+
+// Korte afkortingen, getoond wanneer een kolom is ingeklapt.
+export const MAANDEN_KORT = [
+  'Aug',
+  'Okt',
+  'Nov',
+  'Dec',
+  'Jan',
+  'Feb',
+  'Mrt',
+  'Apr',
+  'Mei',
+  'Jun',
+];

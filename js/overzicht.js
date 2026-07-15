@@ -1,6 +1,20 @@
 import { euro } from './supabaseClient.js';
-import { MAANDEN } from './config.js';
+import { MAANDEN, MAANDEN_KORT } from './config.js';
 import { getInstellingen, getGroepen, getTsoDagen, upsertTsoDagen } from './data.js';
+
+const OPSLAG_SLEUTEL = 'overzicht_ingeklapte_maanden';
+
+function leesIngeklapt() {
+  try {
+    return new Set(JSON.parse(localStorage.getItem(OPSLAG_SLEUTEL) || '[]'));
+  } catch {
+    return new Set();
+  }
+}
+
+function bewaarIngeklapt(set) {
+  localStorage.setItem(OPSLAG_SLEUTEL, JSON.stringify([...set]));
+}
 
 export async function renderOverzicht(root) {
   const [instellingen, groepen, dagen] = await Promise.all([
@@ -30,8 +44,21 @@ export async function renderOverzicht(root) {
     return;
   }
 
-  // Kolomkoppen
-  const maandKoppen = MAANDEN.map((m) => `<th class="maand">${m}</th>`).join('');
+  const ingeklapt = leesIngeklapt();
+
+  // Kolomkoppen — klikbaar om in/uit te klappen
+  const maandKoppen = MAANDEN.map((m, i) => {
+    const maand = i + 1;
+    const dicht = ingeklapt.has(maand) ? ' ingeklapt' : '';
+    return `
+      <th class="maand${dicht}" data-col="${maand}">
+        <button class="maand-kop" data-col="${maand}"
+                title="Klik om in of uit te klappen">
+          <span class="maand-vol">${m}</span>
+          <span class="maand-kort">${MAANDEN_KORT[i]}</span>
+        </button>
+      </th>`;
+  }).join('');
 
   // Rijen
   const rijen = groepen
@@ -39,8 +66,9 @@ export async function renderOverzicht(root) {
       const cellen = MAANDEN.map((_, i) => {
         const maand = i + 1;
         const waarde = kaart.get(`${g.id}:${maand}`) ?? '';
+        const dicht = ingeklapt.has(maand) ? ' ingeklapt' : '';
         return `
-          <td class="cel">
+          <td class="cel${dicht}" data-col="${maand}">
             <div class="cel-inhoud">
               <input class="dagen-input" type="number" min="0" step="1"
                      inputmode="numeric"
@@ -154,6 +182,21 @@ export async function renderOverzicht(root) {
           }
         }, 500)
       );
+    });
+  });
+
+  // In/uitklappen van maandkolommen (staat onthouden in localStorage).
+  root.querySelectorAll('.maand-kop').forEach((knop) => {
+    knop.addEventListener('click', () => {
+      const maand = Number(knop.dataset.col);
+      const nuDicht = ingeklapt.has(maand);
+      if (nuDicht) ingeklapt.delete(maand);
+      else ingeklapt.add(maand);
+      bewaarIngeklapt(ingeklapt);
+
+      root
+        .querySelectorAll(`[data-col="${maand}"]`)
+        .forEach((el) => el.classList.toggle('ingeklapt', !nuDicht));
     });
   });
 }

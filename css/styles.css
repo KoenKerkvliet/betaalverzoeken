@@ -217,7 +217,7 @@ body {
 
 .overzicht-tabel thead th {
   background: #faf9ff;
-  padding: 10px 12px;
+  padding: 7px 10px;
   text-align: right;
   font-size: 12px;
   text-transform: uppercase;
@@ -242,12 +242,12 @@ body {
 .groep-cel {
   text-align: left;
   font-weight: 700;
-  padding: 8px 12px;
+  padding: 3px 12px;
   border-right: 1px solid var(--rand);
 }
 .overzicht-tabel thead th.hoek { border-right: 1px solid var(--rand); }
 
-.cel { padding: 6px 8px; text-align: right; vertical-align: middle; }
+.cel { padding: 3px 8px; text-align: right; vertical-align: middle; }
 .cel-inhoud {
   display: flex;
   align-items: center;
@@ -255,8 +255,8 @@ body {
   gap: 8px;
 }
 .dagen-input {
-  width: 54px;
-  padding: 5px 6px;
+  width: 50px;
+  padding: 3px 6px;
   border: 1px solid var(--rand);
   border-radius: 6px;
   text-align: right;
@@ -282,10 +282,41 @@ body {
 .totaal-cel {
   text-align: right;
   font-weight: 700;
-  padding: 8px 12px;
+  padding: 3px 12px;
   white-space: nowrap;
   background: #faf9ff;
 }
+
+/* Inklapbare maandkolommen */
+.maand-kop {
+  background: none;
+  border: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  padding: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+}
+.maand-kop:hover { color: var(--paars); }
+.maand-kort { display: none; }
+.maand.ingeklapt .maand-vol { display: none; }
+.maand.ingeklapt .maand-kort { display: inline; }
+
+.overzicht-tabel th.maand.ingeklapt,
+.overzicht-tabel td.cel.ingeklapt {
+  width: 38px;
+  min-width: 38px;
+  max-width: 38px;
+  padding-left: 4px;
+  padding-right: 4px;
+  text-align: center;
+}
+.cel.ingeklapt .cel-inhoud { display: none; }
+.maand.ingeklapt .maand-kop { justify-content: center; width: 100%; }
 
 .save-status {
   display: inline-block;
