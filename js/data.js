@@ -230,6 +230,14 @@ export async function getOpenstaand(schooljaarId) {
   return data ?? [];
 }
 
+export async function getNotitieLeerlingen(schooljaarId) {
+  const { data, error } = await supabase.rpc('leerlingen_met_notities', {
+    p_schooljaar_id: schooljaarId,
+  });
+  if (error) throw error;
+  return data ?? [];
+}
+
 // Schoolbreed totaal per maand (server-side opgeteld, geen 1000-rijen-limiet).
 export async function getBetalingenPerMaand(schooljaarId) {
   const { data, error } = await supabase.rpc('betalingen_per_maand', {

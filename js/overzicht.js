@@ -11,6 +11,7 @@ import {
   updateOvergemaakt,
   deleteOvergemaakt,
   getOpenstaand,
+  getNotitieLeerlingen,
 } from './data.js';
 import { parseBedrag } from './util.js';
 import { decryptText, isUnlocked } from './crypto.js';
@@ -43,21 +44,48 @@ function openstaandRijenHtml(rijen, totaal) {
     return `<tr><td colspan="4" class="muted" style="padding:12px">Geen openstaande bedragen — iedereen heeft betaald. 🎉</td></tr>`;
   }
   const body = rijen
-    .map(
-      (r) => `
+    .map((r) => {
+      const maanden = (r.posten || [])
+        .map((p) => `${MAANDEN[p.maand - 1]} (${euro.format(Number(p.bedrag))})`)
+        .join(', ');
+      return `
       <tr>
         <td>${escapeHtml(pseudoniem(r.leerling.voornaam, r.leerling.achternaam))}</td>
         <td>${escapeHtml(r.groep)}</td>
-        <td>${r.maanden.map((m) => MAANDEN[m - 1]).join(', ')}</td>
+        <td>${maanden}</td>
         <td class="openstaand-bedrag">${euro.format(Number(r.totaal))}</td>
-      </tr>`
-    )
+      </tr>`;
+    })
     .join('');
   return `${body}
     <tr class="openstaand-totaalrij">
       <td colspan="3">Totaal openstaand · ${rijen.length} leerling(en)</td>
       <td class="openstaand-bedrag">${euro.format(totaal)}</td>
     </tr>`;
+}
+
+function datumNL(d) {
+  const [j, m, dag] = String(d || '').split('-');
+  return dag && m && j ? `${dag}-${m}-${j}` : d || '';
+}
+
+function notitieLeerlingenHtml(rijen) {
+  if (!rijen.length) {
+    return `<tr><td colspan="4" class="muted" style="padding:12px">Nog geen notities aangemaakt.</td></tr>`;
+  }
+  return rijen
+    .map(
+      (r) => `
+      <tr>
+        <td><a href="#/groep/${r.groep_id}">${escapeHtml(
+        pseudoniem(r.leerling.voornaam, r.leerling.achternaam)
+      )}</a></td>
+        <td>${escapeHtml(r.groep)}</td>
+        <td>${r.aantal}</td>
+        <td>${datumNL(r.laatste)}</td>
+      </tr>`
+    )
+    .join('');
 }
 
 function leergeldRijenHtml(leerlingen, groepNaam, groepJaarTotaal) {
@@ -187,6 +215,15 @@ export async function renderOverzicht(root) {
     );
   const openstaandTotaal = openstaandRijen.reduce((s, r) => s + Number(r.totaal), 0);
 
+  // Leerlingen met notities (met ontsleutelde namen).
+  const notitieLeerlingRijen = (await getNotitieLeerlingen(schooljaar.id))
+    .map((r) => ({ ...r, leerling: naamMap.get(r.leerling_id) }))
+    .filter((r) => r.leerling)
+    .sort(
+      (a, b) =>
+        a.volgorde - b.volgorde || a.leerling.voornaam.localeCompare(b.leerling.voornaam, 'nl')
+    );
+
   const ingeklapt = leesIngeklapt();
 
   // Kolomkoppen — klikbaar om in/uit te klappen
@@ -314,6 +351,15 @@ export async function renderOverzicht(root) {
       <table class="import-tabel openstaand-tabel">
         <thead><tr><th>Naam</th><th>Groep</th><th>Niet betaald</th><th>Openstaand</th></tr></thead>
         <tbody>${openstaandRijenHtml(openstaandRijen, openstaandTotaal)}</tbody>
+      </table>
+    </section>
+
+    <section class="kaart breed-sectie">
+      <h2>Notities</h2>
+      <p class="muted">Leerlingen waarbij een notitie/logboek is aangemaakt. Klik op de naam om naar de groep te gaan.</p>
+      <table class="import-tabel">
+        <thead><tr><th>Naam</th><th>Groep</th><th>Notities</th><th>Laatste</th></tr></thead>
+        <tbody>${notitieLeerlingenHtml(notitieLeerlingRijen)}</tbody>
       </table>
     </section>
   `;

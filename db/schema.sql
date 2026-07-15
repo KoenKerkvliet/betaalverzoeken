@@ -182,7 +182,7 @@ $$;
 -- leergeld-leerlingen en vóór-instroom/uitgesloten maanden eruit; geeft per
 -- leerling de niet-betaalde maanden + het openstaande totaalbedrag.
 create or replace function public.openstaand(p_schooljaar_id uuid)
-returns table(leerling_id uuid, groep text, volgorde int, maanden smallint[], totaal numeric)
+returns table(leerling_id uuid, groep text, volgorde int, posten jsonb, totaal numeric)
 language sql
 stable
 as $$
@@ -190,7 +190,10 @@ as $$
     b.leerling_id,
     g.naam as groep,
     g.volgorde,
-    array_agg(b.maand order by b.maand) as maanden,
+    jsonb_agg(
+      jsonb_build_object('maand', b.maand, 'bedrag', td.dagen * sj.tso_dagprijs)
+      order by b.maand
+    ) as posten,
     sum(td.dagen * sj.tso_dagprijs)::numeric as totaal
   from public.betalingen b
   join public.leerlingen l on l.id = b.leerling_id
@@ -204,4 +207,19 @@ as $$
     and (l.instroom_maand is null or b.maand >= l.instroom_maand)
     and not (b.maand = any(coalesce(l.uitgesloten_maanden, '{}'::smallint[])))
   group by b.leerling_id, g.naam, g.volgorde;
+$$;
+
+-- Leerlingen met notities (aantal + laatste datum) per schooljaar.
+create or replace function public.leerlingen_met_notities(p_schooljaar_id uuid)
+returns table(leerling_id uuid, groep text, groep_id uuid, volgorde int, aantal bigint, laatste date)
+language sql
+stable
+as $$
+  select n.leerling_id, g.naam as groep, g.id as groep_id, g.volgorde,
+         count(*)::bigint as aantal, max(n.datum) as laatste
+  from public.notities n
+  join public.leerlingen l on l.id = n.leerling_id
+  join public.groepen g on g.id = l.groep_id
+  where g.schooljaar_id = p_schooljaar_id
+  group by n.leerling_id, g.naam, g.id, g.volgorde;
 $$;
