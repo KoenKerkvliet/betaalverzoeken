@@ -148,6 +148,7 @@ body {
 }
 .topbar-knop:hover { background: #f3f4f6; }
 .topbar-knop.active { background: var(--paars); border-color: var(--paars); color: #fff; }
+.topbar-icon { padding: 8px; }
 .brand {
   display: flex;
   align-items: center;

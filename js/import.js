@@ -80,8 +80,7 @@ export async function renderImport(root, onKlaar) {
       <div class="inline-form">
         <label>
           Bestand (EDEX .xml of export .xlsx)
-          <input type="file" id="edex-file"
-                 accept=".xml,text/xml,application/xml,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" />
+          <input type="file" id="edex-file" />
         </label>
       </div>
 
