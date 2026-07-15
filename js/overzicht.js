@@ -145,7 +145,7 @@ export async function renderOverzicht(root) {
 
   // Rijen
   const rijen = groepen
-    .map((g) => {
+    .map((g, rij) => {
       const cellen = MAANDEN.map((_, i) => {
         const maand = i + 1;
         const waarde = kaart.get(`${g.id}:${maand}`) ?? '';
@@ -156,7 +156,7 @@ export async function renderOverzicht(root) {
               <input class="dagen-input" type="number" min="0" step="1"
                      inputmode="numeric"
                      value="${waarde}"
-                     data-groep="${g.id}" data-maand="${maand}"
+                     data-groep="${g.id}" data-maand="${maand}" data-rij="${rij}"
                      aria-label="${g.naam} — ${MAANDEN[i]}" />
               <span class="bedrag" data-groep="${g.id}" data-maand="${maand}">
                 ${waarde === '' ? '—' : euro.format(Number(waarde) * dagprijs)}
@@ -294,6 +294,40 @@ export async function renderOverzicht(root) {
           }
         }, 500)
       );
+    });
+
+    // Tab gaat kolomsgewijs (naar beneden) i.p.v. rijsgewijs.
+    input.addEventListener('keydown', (e) => {
+      if (e.key !== 'Tab') return;
+      const rij = Number(input.dataset.rij);
+      const kol = Number(input.dataset.maand);
+      const zoek = (r, k) => root.querySelector(`.dagen-input[data-rij="${r}"][data-maand="${k}"]`);
+      const zichtbaar = (k) => !ingeklapt.has(k);
+      let target = null;
+
+      if (e.shiftKey) {
+        if (rij > 0) {
+          target = zoek(rij - 1, kol);
+        } else {
+          let k = kol - 1;
+          while (k >= 1 && !zichtbaar(k)) k--;
+          if (k >= 1) target = zoek(groepen.length - 1, k);
+        }
+      } else {
+        if (rij < groepen.length - 1) {
+          target = zoek(rij + 1, kol);
+        } else {
+          let k = kol + 1;
+          while (k <= MAANDEN.length && !zichtbaar(k)) k++;
+          if (k <= MAANDEN.length) target = zoek(0, k);
+        }
+      }
+
+      if (target) {
+        e.preventDefault();
+        target.focus();
+        target.select();
+      }
     });
   });
 
