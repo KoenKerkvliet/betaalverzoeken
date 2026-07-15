@@ -61,6 +61,7 @@ create table if not exists public.leerlingen (
   leergeld_bedrag numeric(8,2),                    -- handmatig in te vullen bedrag
   instroom_maand  smallint check (instroom_maand between 1 and 10), -- meedoen vanaf
   uitgesloten_maanden smallint[] not null default '{}',            -- maanden die niet meetellen
+  regelingen      jsonb not null default '{}'::jsonb,              -- maand -> opmerking (regeling)
   created_at timestamptz not null default now()
 );
 create index if not exists leerlingen_groep_idx on public.leerlingen(groep_id);

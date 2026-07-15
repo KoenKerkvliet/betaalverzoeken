@@ -509,9 +509,10 @@ body {
 .bedrag-cel .leeg { color: #cbd5e1; }
 .bedrag-cel.betaald { color: var(--groen); font-weight: 600; }
 .bedrag-cel.open { color: var(--tekst-zacht); }
-/* Arcering per leerling: vóór instroom (lichtgrijs) / uitgesloten (lichtblauw) */
+/* Arcering per leerling: vóór instroom (grijs) / uitgesloten (blauw) / regeling (rood) */
 .bedrag-cel.voor-instroom { background: #f1f5f9; }
 .bedrag-cel.uitgesloten { background: #dbeafe; }
+.bedrag-cel.regeling { background: #fee2e2; cursor: help; }
 
 /* Totaalrij "Binnengekomen" per maand */
 .maand-totaal-rij .groep-cel,
@@ -553,6 +554,7 @@ body {
 .swatch { display: inline-block; width: 11px; height: 11px; border-radius: 3px; border: 1px solid var(--rand); }
 .swatch.voor-instroom { background: #f1f5f9; }
 .swatch.uitgesloten { background: #dbeafe; }
+.swatch.regeling { background: #fee2e2; }
 .leerling-cel {
   display: flex;
   align-items: center;
@@ -634,6 +636,16 @@ body {
   cursor: pointer;
 }
 .menu-optie:hover { background: #f7f7fb; }
+.reg-rij { display: flex; flex-direction: column; gap: 2px; padding: 2px 0; }
+.reg-opm {
+  width: 100%;
+  padding: 4px 6px;
+  border: 1px solid var(--rand);
+  border-radius: 5px;
+  font-family: inherit;
+  font-size: 12px;
+}
+.reg-opm:disabled { background: #f3f4f6; color: var(--tekst-zacht); }
 
 .save-status {
   display: inline-block;

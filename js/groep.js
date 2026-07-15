@@ -18,6 +18,26 @@ function pseudoniem(v, a) {
   return kern ? `${v} ${kern[0].toUpperCase()}.` : v;
 }
 
+function escapeAttr(s) {
+  return String(s || '')
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+// Status van een cel voor een leerling/maand: arceerklasse + tooltip.
+// Volgorde: vóór instroom (grijs) > regeling (rood) > uitgesloten (blauw).
+function celStatus(l, maand) {
+  if (l.instroom_maand && maand < l.instroom_maand) return { klasse: 'voor-instroom', title: '' };
+  const reg = l.regelingen || {};
+  if (Object.prototype.hasOwnProperty.call(reg, String(maand))) {
+    return { klasse: 'regeling', title: reg[String(maand)] || '' };
+  }
+  if ((l.uitgesloten_maanden || []).includes(maand)) return { klasse: 'uitgesloten', title: '' };
+  return { klasse: '', title: '' };
+}
+
 export async function renderGroep(root, id) {
   const schooljaar = getHuidigSchooljaar();
 
@@ -45,6 +65,7 @@ export async function renderGroep(root, id) {
       leergeld: r.leergeld,
       instroom_maand: r.instroom_maand,
       uitgesloten_maanden: r.uitgesloten_maanden || [],
+      regelingen: r.regelingen || {},
     };
     try {
       const { v, a } = JSON.parse(await decryptText(r.enc_naam, r.iv));
@@ -72,23 +93,18 @@ export async function renderGroep(root, id) {
     return `<td class="cel bedrag-cel maand-totaal">${t ? euro.format(t) : '<span class="leeg">—</span>'}</td>`;
   }).join('');
 
-  // Arceerklasse per leerling per maand: lichtgrijs vóór instroom, lichtblauw
-  // voor uitgesloten maanden.
-  const arceerKlasse = (l, maand) => {
-    if (l.instroom_maand && maand < l.instroom_maand) return ' voor-instroom';
-    if ((l.uitgesloten_maanden || []).includes(maand)) return ' uitgesloten';
-    return '';
-  };
-
-  // Cel per leerling per maand: alleen betaalde (geïmporteerde) bedragen tonen
+  // Cel per leerling per maand: alleen betaalde (geïmporteerde) bedragen tonen,
+  // met arcering (instroom/regeling/uitgesloten) en tooltip bij een regeling.
   const cellenVoor = (l) =>
     MAANDEN.map((_, i) => {
       const maand = i + 1;
       const betaald = betaalMap.get(`${l.id}:${maand}`);
       const betaaldCls = betaald != null ? ' betaald' : '';
       const inhoud = betaald != null ? euro.format(betaald) : '<span class="leeg">—</span>';
-      return `<td class="cel bedrag-cel${betaaldCls}${arceerKlasse(l, maand)}"
-                  data-leerling="${l.id}" data-maand="${maand}">${inhoud}</td>`;
+      const st = celStatus(l, maand);
+      const cls = st.klasse ? ' ' + st.klasse : '';
+      const titel = st.title ? ` title="${escapeAttr(st.title)}"` : '';
+      return `<td class="cel bedrag-cel${betaaldCls}${cls}" data-leerling="${l.id}" data-maand="${maand}"${titel}>${inhoud}</td>`;
     }).join('');
 
   const leerlingRijen = leerlingen
@@ -116,7 +132,8 @@ export async function renderGroep(root, id) {
       <p class="muted">${leerlingen.length} leerling(en) · schooljaar ${schooljaar.naam} ·
         <span class="legenda"><span class="stip betaald"></span> betaald</span>
         <span class="legenda"><span class="swatch voor-instroom"></span> vóór instroom</span>
-        <span class="legenda"><span class="swatch uitgesloten"></span> uitgesloten</span></p>
+        <span class="legenda"><span class="swatch uitgesloten"></span> uitgesloten</span>
+        <span class="legenda"><span class="swatch regeling"></span> regeling</span></p>
     </header>
 
     <div class="tabel-wrap">
@@ -209,14 +226,16 @@ export async function renderGroep(root, id) {
     }
   }
 
-  // Werkt de arcering van één leerling-rij live bij (zonder her-render).
+  // Werkt de arcering + tooltip van één leerling-rij live bij (zonder her-render).
   function pasArceringToe(l) {
     for (let m = 1; m <= MAANDEN.length; m++) {
       const td = root.querySelector(`td[data-leerling="${l.id}"][data-maand="${m}"]`);
       if (!td) continue;
-      td.classList.remove('voor-instroom', 'uitgesloten');
-      if (l.instroom_maand && m < l.instroom_maand) td.classList.add('voor-instroom');
-      else if ((l.uitgesloten_maanden || []).includes(m)) td.classList.add('uitgesloten');
+      td.classList.remove('voor-instroom', 'uitgesloten', 'regeling');
+      td.removeAttribute('title');
+      const st = celStatus(l, m);
+      if (st.klasse) td.classList.add(st.klasse);
+      if (st.title) td.title = st.title;
     }
   }
 
@@ -242,6 +261,19 @@ export async function renderGroep(root, id) {
           }> ${m}</label>`
       ).join('');
 
+    const reg = l.regelingen || {};
+    const regelingOpties = MAANDEN.map((m, i) => {
+      const maand = i + 1;
+      const heeft = Object.prototype.hasOwnProperty.call(reg, String(maand));
+      return `<div class="reg-rij">
+        <label class="menu-optie"><input type="checkbox" class="reg-cb" value="${maand}"${
+        heeft ? ' checked' : ''
+      }> ${m}</label>
+        <input type="text" class="reg-opm" data-maand="${maand}" placeholder="opmerking"
+               value="${escapeAttr(heeft ? reg[String(maand)] : '')}"${heeft ? '' : ' disabled'} />
+      </div>`;
+    }).join('');
+
     return `
       <div class="menu-sectie">
         <button type="button" class="menu-kop" data-sectie="instroom">Instroom vanaf <span>▾</span></button>
@@ -250,6 +282,10 @@ export async function renderGroep(root, id) {
       <div class="menu-sectie">
         <button type="button" class="menu-kop" data-sectie="uitsluiten">Maanden uitsluiten <span>▾</span></button>
         <div class="menu-inhoud" data-inhoud="uitsluiten" hidden>${uitsluitOpties}</div>
+      </div>
+      <div class="menu-sectie">
+        <button type="button" class="menu-kop" data-sectie="regeling">Regeling <span>▾</span></button>
+        <div class="menu-inhoud" data-inhoud="regeling" hidden>${regelingOpties}</div>
       </div>`;
   }
 
@@ -317,6 +353,29 @@ export async function renderGroep(root, id) {
       syncUitsluiten();
     });
     maandCbs.forEach((cb) => cb.addEventListener('change', syncUitsluiten));
+
+    // Regeling (checkbox per maand + opmerking)
+    const regCbs = [...menuEl.querySelectorAll('.reg-cb')];
+    function syncRegeling() {
+      const reg = {};
+      regCbs.forEach((cb) => {
+        const opm = menuEl.querySelector(`.reg-opm[data-maand="${cb.value}"]`);
+        if (cb.checked) reg[cb.value] = (opm?.value || '').trim();
+      });
+      l.regelingen = reg;
+      pasArceringToe(l);
+      updateLeerling(l.id, { regelingen: reg }).catch((e) => console.error(e));
+    }
+    regCbs.forEach((cb) => {
+      cb.addEventListener('change', () => {
+        const opm = menuEl.querySelector(`.reg-opm[data-maand="${cb.value}"]`);
+        if (opm) opm.disabled = !cb.checked;
+        syncRegeling();
+      });
+    });
+    menuEl.querySelectorAll('.reg-opm').forEach((opm) => {
+      opm.addEventListener('change', syncRegeling);
+    });
 
     menuEl.addEventListener('focusout', (e) => {
       if (!menuEl.contains(e.relatedTarget)) sluitMenu();
