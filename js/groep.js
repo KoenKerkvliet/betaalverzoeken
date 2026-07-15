@@ -6,6 +6,7 @@ import {
   getLeerlingen,
   insertLeerlingen,
   deleteLeerling,
+  getBetalingen,
 } from './data.js';
 import { encryptText, decryptText, isUnlocked } from './crypto.js';
 import { getHuidigSchooljaar } from './state.js';
@@ -58,15 +59,30 @@ export async function renderGroep(root, id) {
   }
   leerlingen.sort((x, y) => x.voornaam.localeCompare(y.voornaam, 'nl'));
 
+  // Betaalde bedragen per leerling per maand
+  const betalingen = await getBetalingen(leerlingen.map((l) => l.id));
+  const betaalMap = new Map();
+  for (const b of betalingen) betaalMap.set(`${b.leerling_id}:${b.maand}`, Number(b.bedrag));
+
   let jaarTotaal = 0;
   for (let m = 1; m <= MAANDEN.length; m++) jaarTotaal += maandBedrag(m) ?? 0;
 
   const maandKoppen = MAANDEN.map((m) => `<th class="maand">${m}</th>`).join('');
 
-  const bedragCellen = MAANDEN.map((_, i) => {
-    const b = maandBedrag(i + 1);
-    return `<td class="cel bedrag-cel">${b == null ? '<span class="leeg">—</span>' : euro.format(b)}</td>`;
-  }).join('');
+  // Cel per leerling per maand: betaald (groen) of nog open (verschuldigd, grijs)
+  const cellenVoor = (l) =>
+    MAANDEN.map((_, i) => {
+      const maand = i + 1;
+      const betaald = betaalMap.get(`${l.id}:${maand}`);
+      const verschuldigd = maandBedrag(maand);
+      if (betaald != null) {
+        return `<td class="cel bedrag-cel betaald">${euro.format(betaald)}</td>`;
+      }
+      if (verschuldigd != null) {
+        return `<td class="cel bedrag-cel open">${euro.format(verschuldigd)}</td>`;
+      }
+      return `<td class="cel bedrag-cel"><span class="leeg">—</span></td>`;
+    }).join('');
 
   const leerlingRijen = leerlingen
     .map(
@@ -80,7 +96,7 @@ export async function renderGroep(root, id) {
             <button class="mini-x" data-del="${l.id}" title="Leerling verwijderen">✕</button>
           </div>
         </th>
-        ${bedragCellen}
+        ${cellenVoor(l)}
         <td class="totaal-cel">${euro.format(jaarTotaal)}</td>
       </tr>`
     )
@@ -89,7 +105,9 @@ export async function renderGroep(root, id) {
   root.innerHTML = `
     <header class="page-head">
       <h1>Groep ${groep.naam}</h1>
-      <p class="muted">${leerlingen.length} leerling(en) · schooljaar ${schooljaar.naam} · bedragen komen uit het <a href="#/overzicht">Overzicht</a></p>
+      <p class="muted">${leerlingen.length} leerling(en) · schooljaar ${schooljaar.naam} ·
+        <span class="legenda"><span class="stip betaald"></span> betaald</span>
+        <span class="legenda"><span class="stip open"></span> nog open</span></p>
     </header>
 
     <div class="tabel-wrap">

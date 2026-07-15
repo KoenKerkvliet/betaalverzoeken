@@ -153,6 +153,26 @@ export async function setLeergeld(id, velden) {
   if (error) throw error;
 }
 
+// --- Betalingen (per leerling per maand) ----------------------------------
+
+export async function getBetalingen(leerlingIds) {
+  if (!leerlingIds?.length) return [];
+  const { data, error } = await supabase
+    .from('betalingen')
+    .select('*')
+    .in('leerling_id', leerlingIds);
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function upsertBetalingen(rows) {
+  if (!rows.length) return;
+  const { error } = await supabase
+    .from('betalingen')
+    .upsert(rows, { onConflict: 'leerling_id,maand' });
+  if (error) throw error;
+}
+
 export async function insertLeerlingen(rows) {
   if (!rows.length) return;
   const { error } = await supabase.from('leerlingen').insert(rows);

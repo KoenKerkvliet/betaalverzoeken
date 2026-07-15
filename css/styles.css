@@ -506,6 +506,12 @@ body {
   font-variant-numeric: tabular-nums;
 }
 .bedrag-cel .leeg { color: #cbd5e1; }
+.bedrag-cel.betaald { color: var(--groen); font-weight: 600; }
+.bedrag-cel.open { color: var(--tekst-zacht); }
+.legenda { display: inline-flex; align-items: center; gap: 4px; margin-left: 8px; }
+.stip { display: inline-block; width: 8px; height: 8px; border-radius: 50%; }
+.stip.betaald { background: var(--groen); }
+.stip.open { background: var(--tekst-zacht); }
 .leerling-cel {
   display: flex;
   align-items: center;

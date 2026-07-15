@@ -8,10 +8,15 @@
 import {
   findOrCreateSchooljaar,
   findOrCreateGroep,
+  getGroepen,
   getLeerlingen,
   insertLeerlingen,
+  upsertBetalingen,
 } from './data.js';
 import { encryptText, decryptText, isUnlocked } from './crypto.js';
+import { getHuidigSchooljaar } from './state.js';
+import { euro } from './supabaseClient.js';
+import { MAANDEN } from './config.js';
 
 // Leest en parset een EDEX-XML-string.
 export function parseEdex(xmlTekst) {
@@ -60,21 +65,23 @@ export function parseEdex(xmlTekst) {
 export async function renderImport(root, onKlaar) {
   root.innerHTML = `
     <header class="page-head">
-      <h1>Importeren (EDEX)</h1>
-      <p class="muted">Lees een EDEX-bestand (.xml) in. Groepen en leerlingen worden aan het schooljaar uit het bestand gekoppeld.</p>
+      <h1>Importeren</h1>
+      <p class="muted">Kies een bestand — de app herkent zelf of het een EDEX-bestand (.xml) of een betaal-export (.xlsx) is.</p>
     </header>
 
     <section class="kaart">
       <div class="privacy-note">
-        🔒 Dit bestand wordt <strong>volledig in je browser</strong> verwerkt. Alleen
-        <strong>schooljaar, voornaam, achternaam en groep</strong> worden eruit gelezen.
-        Leerkrachten en alle overige gegevens worden genegeerd en verlaten je computer niet.
+        🔒 Het bestand wordt <strong>volledig in je browser</strong> verwerkt.
+        Bij EDEX worden alleen schooljaar, voornaam, achternaam en groep gelezen; bij een
+        betaal-export worden namen alleen lokaal gematcht en verlaat er geen naam je computer —
+        er worden enkel bedragen per leerling opgeslagen.
       </div>
 
       <div class="inline-form">
         <label>
-          EDEX-bestand
-          <input type="file" id="edex-file" accept=".xml,text/xml,application/xml" />
+          Bestand (EDEX .xml of export .xlsx)
+          <input type="file" id="edex-file"
+                 accept=".xml,text/xml,application/xml,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" />
         </label>
       </div>
 
@@ -95,6 +102,14 @@ export async function renderImport(root, onKlaar) {
 
     const file = fileInput.files?.[0];
     if (!file) return;
+
+    // Automatische herkenning: .xlsx/.xls = betaal-export, anders EDEX (.xml)
+    const naam = file.name.toLowerCase();
+    if (naam.endsWith('.xlsx') || naam.endsWith('.xls')) {
+      await verwerkExport(file, resultaat, status);
+      fileInput.value = '';
+      return;
+    }
 
     let tekst;
     try {
@@ -259,4 +274,169 @@ function escapeHtml(s) {
     /[&<>"']/g,
     (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])
   );
+}
+
+// ===========================================================================
+// Betaal-export (.xlsx) — kolommen: Groep · Leerling · Betaling
+// ===========================================================================
+
+function naamSleutel(groep, naam) {
+  return `${(groep || '').toLowerCase().trim()}|${(naam || '').toLowerCase().trim()}`;
+}
+
+// Parset een .xlsx client-side met SheetJS (lazy geladen van de CDN).
+async function parseExport(file) {
+  const XLSX = await import('https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs');
+  const buf = await file.arrayBuffer();
+  const wb = XLSX.read(buf, { type: 'array' });
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  const json = XLSX.utils.sheet_to_json(ws, { defval: '' });
+  return json
+    .map((r) => ({
+      groep: String(r.Groep ?? r.groep ?? '').trim(),
+      leerling: String(r.Leerling ?? r.leerling ?? '').trim(),
+      bedrag: Number(r.Betaling ?? r.betaling ?? 0) || 0,
+    }))
+    .filter((r) => r.leerling);
+}
+
+// Popup om de maand te kiezen. Resolvt met maandnummer (1..10) of null.
+function kiesMaand() {
+  return new Promise((resolve) => {
+    const overlay = document.createElement('div');
+    overlay.className = 'gate-overlay';
+    overlay.innerHTML = `
+      <div class="auth-card">
+        <div class="auth-brand">
+          <div class="auth-logo">📅</div>
+          <h1>Voor welke maand?</h1>
+          <p class="muted">Kies de maand waarvoor deze betalingen gelden.</p>
+        </div>
+        <form id="maand-form" class="auth-form">
+          <label>Maand
+            <select id="maand-select">
+              ${MAANDEN.map((m, i) => `<option value="${i + 1}">${m}</option>`).join('')}
+            </select>
+          </label>
+          <div style="display:flex;gap:8px">
+            <button type="submit" class="btn btn-primary">Verwerken</button>
+            <button type="button" class="btn btn-ghost" id="maand-annuleer">Annuleren</button>
+          </div>
+        </form>
+      </div>`;
+    document.body.appendChild(overlay);
+    overlay.querySelector('#maand-form').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const m = Number(overlay.querySelector('#maand-select').value);
+      overlay.remove();
+      resolve(m);
+    });
+    overlay.querySelector('#maand-annuleer').addEventListener('click', () => {
+      overlay.remove();
+      resolve(null);
+    });
+  });
+}
+
+async function verwerkExport(file, root, status) {
+  if (!isUnlocked()) {
+    status.className = 'msg error';
+    status.textContent = 'De encryptie is niet ontgrendeld. Herlaad de pagina en voer je passphrase in.';
+    return;
+  }
+
+  status.className = 'msg';
+  status.textContent = 'Bestand lezen…';
+
+  let rows;
+  try {
+    rows = await parseExport(file);
+  } catch (err) {
+    console.error(err);
+    status.className = 'msg error';
+    status.textContent = 'Kon het Excel-bestand niet lezen.';
+    return;
+  }
+  if (!rows.length) {
+    status.className = 'msg info';
+    status.textContent = 'Geen betalingen gevonden in dit bestand (verwacht kolommen Groep, Leerling, Betaling).';
+    return;
+  }
+
+  const maand = await kiesMaand();
+  if (maand == null) {
+    status.className = 'msg info';
+    status.textContent = 'Import geannuleerd.';
+    return;
+  }
+
+  status.textContent = 'Verwerken…';
+
+  const schooljaar = getHuidigSchooljaar();
+  const groepen = await getGroepen(schooljaar.id);
+  const groepNaam = new Map(groepen.map((g) => [g.id, g.naam]));
+
+  // Onze (versleutelde) leerlingen ontsleutelen om op naam+groep te matchen.
+  const leerlingRows = await getLeerlingen(groepen.map((g) => g.id));
+  const naamNaarId = new Map();
+  for (const r of leerlingRows) {
+    try {
+      const { v, a } = JSON.parse(await decryptText(r.enc_naam, r.iv));
+      naamNaarId.set(naamSleutel(groepNaam.get(r.groep_id), `${v} ${a}`), r.id);
+    } catch {
+      /* onleesbaar — overslaan */
+    }
+  }
+
+  const betalingen = [];
+  const nietGevonden = [];
+  for (const row of rows) {
+    const id = naamNaarId.get(naamSleutel(row.groep, row.leerling));
+    if (!id) {
+      nietGevonden.push(row);
+      continue;
+    }
+    betalingen.push({ leerling_id: id, maand, bedrag: row.bedrag });
+  }
+
+  try {
+    await upsertBetalingen(betalingen);
+  } catch (err) {
+    console.error(err);
+    status.className = 'msg error';
+    status.textContent = 'Opslaan van betalingen mislukt.';
+    return;
+  }
+
+  status.className = 'msg success';
+  status.textContent = `Maand ${MAANDEN[maand - 1]}: ${betalingen.length} betaling(en) verwerkt${
+    nietGevonden.length ? `, ${nietGevonden.length} niet gekoppeld` : ''
+  }.`;
+
+  root.innerHTML = `
+    <div class="kaart">
+      <h2>Betalingen · ${escapeHtml(MAANDEN[maand - 1])}</h2>
+      <p class="muted">De bedragen staan nu bij de juiste leerlingen op de groepspagina's.</p>
+      ${
+        nietGevonden.length
+          ? `<details style="margin-top:8px">
+              <summary>${nietGevonden.length} regel(s) niet gekoppeld</summary>
+              <p class="muted" style="font-size:12px">Deze namen/groepen kwamen niet overeen met een leerling in schooljaar ${escapeHtml(
+                schooljaar.naam
+              )}. Controleer de naam of importeer eerst de EDEX.</p>
+              <table class="import-tabel">
+                <thead><tr><th>Groep</th><th>Leerling</th><th>Bedrag</th></tr></thead>
+                <tbody>${nietGevonden
+                  .map(
+                    (r) =>
+                      `<tr><td>${escapeHtml(r.groep)}</td><td>${escapeHtml(
+                        r.leerling
+                      )}</td><td>${euro.format(r.bedrag)}</td></tr>`
+                  )
+                  .join('')}</tbody>
+              </table>
+            </details>`
+          : ''
+      }
+    </div>`;
 }
