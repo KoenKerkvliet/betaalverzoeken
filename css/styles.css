@@ -509,6 +509,23 @@ body {
 .bedrag-cel .leeg { color: #cbd5e1; }
 .bedrag-cel.betaald { color: var(--groen); font-weight: 600; }
 .bedrag-cel.open { color: var(--tekst-zacht); }
+
+/* Totaalrij "Binnengekomen" per maand */
+.maand-totaal-rij .groep-cel,
+.maand-totaal-rij .bedrag-cel {
+  background: #faf9ff;
+  border-bottom: 2px solid var(--rand);
+  font-weight: 700;
+}
+.maand-totaal-rij .totaal-label {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--tekst-zacht);
+  font-weight: 700;
+}
+.maand-totaal-rij .bedrag-cel { color: var(--tekst); }
+.maand-totaal-rij .bedrag-cel .leeg { color: #cbd5e1; }
 .legenda { display: inline-flex; align-items: center; gap: 4px; margin-left: 8px; }
 .stip { display: inline-block; width: 8px; height: 8px; border-radius: 50%; }
 .stip.betaald { background: var(--groen); }

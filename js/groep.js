@@ -2,7 +2,6 @@ import { euro } from './supabaseClient.js';
 import { MAANDEN } from './config.js';
 import {
   getGroepen,
-  getTsoDagen,
   getLeerlingen,
   insertLeerlingen,
   deleteLeerling,
@@ -20,7 +19,6 @@ function pseudoniem(v, a) {
 
 export async function renderGroep(root, id) {
   const schooljaar = getHuidigSchooljaar();
-  const dagprijs = Number(schooljaar?.tso_dagprijs) || 0;
 
   const groepen = schooljaar ? await getGroepen(schooljaar.id) : [];
   const groep = groepen.find((g) => g.id === id);
@@ -38,15 +36,6 @@ export async function renderGroep(root, id) {
     return;
   }
 
-  // Bedrag per maand voor deze groep (dagen × dagprijs)
-  const tsoDagen = await getTsoDagen([id]);
-  const dagenPerMaand = new Map();
-  for (const d of tsoDagen) dagenPerMaand.set(d.maand, d.dagen);
-  const maandBedrag = (maand) => {
-    const dg = dagenPerMaand.get(maand);
-    return dg == null ? null : dg * dagprijs;
-  };
-
   // Leerlingen ophalen en ontsleutelen
   const rijenData = await getLeerlingen(id);
   const leerlingen = [];
@@ -60,26 +49,30 @@ export async function renderGroep(root, id) {
   }
   leerlingen.sort((x, y) => x.voornaam.localeCompare(y.voornaam, 'nl'));
 
-  // Betaalde bedragen per leerling per maand
+  // Betaalde bedragen per leerling per maand + totaal per maand
   const betalingen = await getBetalingen(leerlingen.map((l) => l.id));
   const betaalMap = new Map();
-  for (const b of betalingen) betaalMap.set(`${b.leerling_id}:${b.maand}`, Number(b.bedrag));
+  const maandTotaal = {};
+  for (const b of betalingen) {
+    betaalMap.set(`${b.leerling_id}:${b.maand}`, Number(b.bedrag));
+    maandTotaal[b.maand] = (maandTotaal[b.maand] || 0) + Number(b.bedrag);
+  }
 
   const maandKoppen = MAANDEN.map((m) => `<th class="maand">${m}</th>`).join('');
 
-  // Cel per leerling per maand: betaald (groen) of nog open (verschuldigd, grijs)
+  // Totaalrij: hoeveel geld is die maand binnengekomen (som van betalingen)
+  const totaalCellen = MAANDEN.map((_, i) => {
+    const t = maandTotaal[i + 1];
+    return `<td class="cel bedrag-cel maand-totaal">${t ? euro.format(t) : '<span class="leeg">—</span>'}</td>`;
+  }).join('');
+
+  // Cel per leerling per maand: alleen betaalde (geïmporteerde) bedragen tonen
   const cellenVoor = (l) =>
     MAANDEN.map((_, i) => {
-      const maand = i + 1;
-      const betaald = betaalMap.get(`${l.id}:${maand}`);
-      const verschuldigd = maandBedrag(maand);
-      if (betaald != null) {
-        return `<td class="cel bedrag-cel betaald">${euro.format(betaald)}</td>`;
-      }
-      if (verschuldigd != null) {
-        return `<td class="cel bedrag-cel open">${euro.format(verschuldigd)}</td>`;
-      }
-      return `<td class="cel bedrag-cel"><span class="leeg">—</span></td>`;
+      const betaald = betaalMap.get(`${l.id}:${i + 1}`);
+      return betaald != null
+        ? `<td class="cel bedrag-cel betaald">${euro.format(betaald)}</td>`
+        : `<td class="cel bedrag-cel"><span class="leeg">—</span></td>`;
     }).join('');
 
   const leerlingRijen = leerlingen
@@ -104,7 +97,7 @@ export async function renderGroep(root, id) {
       <h1>Groep ${groep.naam}</h1>
       <p class="muted">${leerlingen.length} leerling(en) · schooljaar ${schooljaar.naam} ·
         <span class="legenda"><span class="stip betaald"></span> betaald</span>
-        <span class="legenda"><span class="stip open"></span> nog open</span></p>
+        · onderste kop-rij = totaal binnengekomen per maand</p>
     </header>
 
     <div class="tabel-wrap">
@@ -122,8 +115,12 @@ export async function renderGroep(root, id) {
         </thead>
         <tbody>
           ${
-            leerlingRijen ||
-            `<tr><td class="cel" colspan="${MAANDEN.length + 1}" style="text-align:left;padding:14px">Nog geen leerlingen. Voeg toe via de ⋮ hierboven of via <a href="#/import">EDEX</a>.</td></tr>`
+            leerlingen.length
+              ? `<tr class="maand-totaal-rij">
+                   <th class="groep-cel totaal-label" scope="row">Binnengekomen</th>
+                   ${totaalCellen}
+                 </tr>${leerlingRijen}`
+              : `<tr><td class="cel" colspan="${MAANDEN.length + 1}" style="text-align:left;padding:14px">Nog geen leerlingen. Voeg toe via de ⋮ hierboven of via <a href="#/import">EDEX</a>.</td></tr>`
           }
         </tbody>
       </table>
