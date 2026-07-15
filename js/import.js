@@ -429,7 +429,9 @@ async function verwerkExport(file, root, status) {
     }
   }
 
-  const betalingen = [];
+  // Meerdere regels voor dezelfde leerling+maand worden opgeteld (bijv.
+  // betaling in termijnen). Anders weigert de database de upsert.
+  const perLeerling = new Map(); // leerling_id -> opgeteld bedrag
   const nietGevonden = [];
   for (const row of rows) {
     let id = exactMap.get(naamSleutel(row.groep, row.leerling));
@@ -441,8 +443,14 @@ async function verwerkExport(file, root, status) {
       nietGevonden.push(row);
       continue;
     }
-    betalingen.push({ leerling_id: id, maand, bedrag: row.bedrag });
+    perLeerling.set(id, (perLeerling.get(id) || 0) + row.bedrag);
   }
+
+  const betalingen = [...perLeerling.entries()].map(([leerling_id, som]) => ({
+    leerling_id,
+    maand,
+    bedrag: Math.round(som * 100) / 100,
+  }));
 
   try {
     await upsertBetalingen(betalingen);
