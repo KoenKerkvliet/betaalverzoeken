@@ -25,6 +25,15 @@ function escapeHtml(s) {
   );
 }
 
+// Parset een Nederlands bedrag: "8.919,70", "8919,7", "8919.7" of "8919" → getal.
+function parseBedrag(s) {
+  let t = String(s || '').replace(/[€\s]/g, '');
+  if (t === '') return 0;
+  if (t.includes(',')) t = t.replace(/\./g, '').replace(',', '.');
+  const n = Number(t);
+  return isNaN(n) ? 0 : Math.max(0, n);
+}
+
 function leergeldRijenHtml(leerlingen, groepNaam, groepJaarTotaal) {
   const gekoppeld = leerlingen
     .filter((l) => l.leergeld)
@@ -224,9 +233,9 @@ export async function renderOverzicht(root) {
               const dicht = ingeklapt.has(maand) ? ' ingeklapt' : '';
               const val = overgemaaktMap[maand];
               return `<td class="cel bedrag-cel${dicht}" data-col="${maand}">
-                <span class="cel-inhoud"><input type="number" class="overgemaakt-input"
-                  data-maand="${maand}" step="0.01" min="0" inputmode="decimal" placeholder="—"
-                  value="${val != null ? Number(val).toFixed(2) : ''}" /></span>
+                <span class="cel-inhoud"><input type="text" class="overgemaakt-input"
+                  data-maand="${maand}" inputmode="decimal" placeholder="—"
+                  value="${val ? euro.format(val) : ''}" /></span>
               </td>`;
             }).join('')}
             <td class="totaal-cel" id="overgemaakt-totaal">${euro.format(overgemaaktTotaal())}</td>
@@ -429,12 +438,20 @@ export async function renderOverzicht(root) {
 
   // --- Overgemaakt: handmatige invoer per maand --------------------------
   root.querySelectorAll('.overgemaakt-input').forEach((inp) => {
-    inp.addEventListener('change', async () => {
-      const maand = Number(inp.dataset.maand);
-      const ruw = inp.value.trim();
-      const bedrag = ruw === '' ? 0 : Math.max(0, Number(ruw) || 0);
-      if (ruw !== '') inp.value = bedrag.toFixed(2);
+    const maand = Number(inp.dataset.maand);
+
+    // Tijdens bewerken: toon een kaal, bewerkbaar getal met komma.
+    inp.addEventListener('focus', () => {
+      const v = overgemaaktMap[maand];
+      inp.value = v ? String(v).replace('.', ',') : '';
+      inp.select();
+    });
+
+    // Na bewerken: opslaan en netjes als bedrag tonen.
+    inp.addEventListener('blur', async () => {
+      const bedrag = parseBedrag(inp.value);
       overgemaaktMap[maand] = bedrag;
+      inp.value = bedrag ? euro.format(bedrag) : '';
       const totCel = root.querySelector('#overgemaakt-totaal');
       if (totCel) totCel.textContent = euro.format(overgemaaktTotaal());
       try {

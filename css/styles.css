@@ -563,13 +563,14 @@ body {
   color: var(--tekst-zacht);
 }
 .overgemaakt-input {
-  width: 64px;
-  padding: 3px 6px;
+  width: 96px;
+  padding: 3px 8px;
   border: 1px solid var(--rand);
   border-radius: 6px;
   text-align: right;
   font-family: inherit;
   font-size: 13px;
+  font-variant-numeric: tabular-nums;
 }
 .overgemaakt-input:focus { outline: 2px solid var(--paars-licht); border-color: var(--paars); }
 .legenda { display: inline-flex; align-items: center; gap: 4px; margin-left: 8px; }
