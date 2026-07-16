@@ -16,6 +16,7 @@ import {
   getOpgeslagenSchooljaarId,
 } from './state.js';
 import { toonGate } from './gate.js';
+import { mfaChallengeNodig, mfaIngeschakeld, toonMfaGate } from './mfa.js';
 import {
   openDeelnemersRapport,
   openstaandeBetalingenRapport,
@@ -311,9 +312,18 @@ async function ontgrendelIndienNodig() {
 
 window.addEventListener('hashchange', render);
 
+// Vraagt de 2FA-code als er een geverifieerde factor is (aal1 → aal2).
+async function mfaIndienNodig() {
+  if (await mfaChallengeNodig()) {
+    const { factorId } = await mfaIngeschakeld();
+    if (factorId) await toonMfaGate(factorId);
+  }
+}
+
 (async () => {
   const sessie = await vereisSessie();
   if (!sessie) return; // vereisSessie stuurt zelf door naar login
+  await mfaIndienNodig();
   await ontgrendelIndienNodig();
   await laadSchooljaren();
   if (!window.location.hash) window.location.hash = '#/overzicht';
