@@ -61,7 +61,7 @@ create table if not exists public.leerlingen (
   leergeld_bedrag numeric(8,2),                    -- handmatig in te vullen bedrag
   instroom_maand  smallint check (instroom_maand between 1 and 10), -- meedoen vanaf
   uitgesloten_maanden smallint[] not null default '{}',            -- maanden die niet meetellen
-  regelingen      jsonb not null default '{}'::jsonb,              -- maand -> opmerking (regeling)
+  regelingen      jsonb not null default '{}'::jsonb,              -- maand -> {ct,iv} (client-side versleutelde opmerking)
   created_at timestamptz not null default now()
 );
 create index if not exists leerlingen_groep_idx on public.leerlingen(groep_id);
@@ -104,9 +104,33 @@ create index if not exists notities_leerling_idx on public.notities(leerling_id)
 -- ===========================================================================
 -- Row Level Security
 -- Er is geen registratie: alleen door jou in Supabase aangemaakte accounts
--- kunnen inloggen. Elke ingelogde (authenticated) gebruiker mag alles lezen
--- en schrijven; anoniem verkeer krijgt niets.
+-- kunnen inloggen. Anoniem verkeer krijgt niets. Heeft de gebruiker een
+-- geverifieerde 2FA-factor, dan eist de database bovendien een sessie op
+-- aal2-niveau (wachtwoord + code) — ook bij directe API-toegang.
 -- ===========================================================================
+
+-- 2FA-afdwinging (in een niet via de REST-API geëxposeerd schema).
+create schema if not exists intern;
+grant usage on schema intern to authenticated;
+
+create or replace function intern.mfa_ok()
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select array[coalesce(auth.jwt()->>'aal', 'aal1')] <@ (
+    select case
+      when count(id) > 0 then array['aal2']
+      else array['aal1', 'aal2']
+    end
+    from auth.mfa_factors
+    where user_id = auth.uid() and status = 'verified'
+  );
+$$;
+revoke execute on function intern.mfa_ok() from public;
+grant execute on function intern.mfa_ok() to authenticated;
 
 alter table public.instellingen enable row level security;
 alter table public.schooljaren  enable row level security;
@@ -122,42 +146,42 @@ begin
   -- instellingen
   if not exists (select 1 from pg_policies where tablename = 'instellingen' and policyname = 'ingelogd_alles') then
     create policy ingelogd_alles on public.instellingen
-      for all to authenticated using (true) with check (true);
+      for all to authenticated using ((select intern.mfa_ok())) with check ((select intern.mfa_ok()));
   end if;
   -- groepen
   if not exists (select 1 from pg_policies where tablename = 'groepen' and policyname = 'ingelogd_alles') then
     create policy ingelogd_alles on public.groepen
-      for all to authenticated using (true) with check (true);
+      for all to authenticated using ((select intern.mfa_ok())) with check ((select intern.mfa_ok()));
   end if;
   -- tso_dagen
   if not exists (select 1 from pg_policies where tablename = 'tso_dagen' and policyname = 'ingelogd_alles') then
     create policy ingelogd_alles on public.tso_dagen
-      for all to authenticated using (true) with check (true);
+      for all to authenticated using ((select intern.mfa_ok())) with check ((select intern.mfa_ok()));
   end if;
   -- leerlingen
   if not exists (select 1 from pg_policies where tablename = 'leerlingen' and policyname = 'ingelogd_alles') then
     create policy ingelogd_alles on public.leerlingen
-      for all to authenticated using (true) with check (true);
+      for all to authenticated using ((select intern.mfa_ok())) with check ((select intern.mfa_ok()));
   end if;
   -- schooljaren
   if not exists (select 1 from pg_policies where tablename = 'schooljaren' and policyname = 'ingelogd_alles') then
     create policy ingelogd_alles on public.schooljaren
-      for all to authenticated using (true) with check (true);
+      for all to authenticated using ((select intern.mfa_ok())) with check ((select intern.mfa_ok()));
   end if;
   -- betalingen
   if not exists (select 1 from pg_policies where tablename = 'betalingen' and policyname = 'ingelogd_alles') then
     create policy ingelogd_alles on public.betalingen
-      for all to authenticated using (true) with check (true);
+      for all to authenticated using ((select intern.mfa_ok())) with check ((select intern.mfa_ok()));
   end if;
   -- overgemaakt
   if not exists (select 1 from pg_policies where tablename = 'overgemaakt' and policyname = 'ingelogd_alles') then
     create policy ingelogd_alles on public.overgemaakt
-      for all to authenticated using (true) with check (true);
+      for all to authenticated using ((select intern.mfa_ok())) with check ((select intern.mfa_ok()));
   end if;
   -- notities
   if not exists (select 1 from pg_policies where tablename = 'notities' and policyname = 'ingelogd_alles') then
     create policy ingelogd_alles on public.notities
-      for all to authenticated using (true) with check (true);
+      for all to authenticated using ((select intern.mfa_ok())) with check ((select intern.mfa_ok()));
   end if;
 end $$;
 
@@ -169,6 +193,7 @@ create or replace function public.betalingen_per_maand(p_schooljaar_id uuid)
 returns table(maand smallint, totaal numeric)
 language sql
 stable
+set search_path = ''
 as $$
   select b.maand, sum(b.bedrag)::numeric as totaal
   from public.betalingen b
@@ -185,6 +210,7 @@ create or replace function public.openstaand(p_schooljaar_id uuid)
 returns table(leerling_id uuid, groep text, volgorde int, posten jsonb, totaal numeric)
 language sql
 stable
+set search_path = ''
 as $$
   select
     b.leerling_id,
@@ -214,6 +240,7 @@ create or replace function public.leerlingen_met_notities(p_schooljaar_id uuid)
 returns table(leerling_id uuid, groep text, groep_id uuid, volgorde int, aantal bigint, laatste date)
 language sql
 stable
+set search_path = ''
 as $$
   select n.leerling_id, g.naam as groep, g.id as groep_id, g.volgorde,
          count(*)::bigint as aantal, max(n.datum) as laatste
@@ -222,4 +249,51 @@ as $$
   join public.groepen g on g.id = l.groep_id
   where g.schooljaar_id = p_schooljaar_id
   group by n.leerling_id, g.naam, g.id, g.volgorde;
+$$;
+
+-- Totaaloverzicht: kerncijfers voor het Totaaloverzicht-rapport.
+create or replace function public.totaaloverzicht(p_schooljaar_id uuid)
+returns table(
+  binnengekomen numeric,
+  aantal_uitgevraagd bigint,
+  aantal_betaald bigint,
+  aantal_leergeld bigint,
+  aantal_leerlingen bigint,
+  openstaand numeric
+)
+language sql
+stable
+set search_path = ''
+as $$
+  with ll as (
+    select l.id, l.leergeld
+    from public.leerlingen l
+    join public.groepen g on g.id = l.groep_id
+    where g.schooljaar_id = p_schooljaar_id
+  ),
+  bet as (
+    select b.bedrag
+    from public.betalingen b
+    join ll on ll.id = b.leerling_id
+  ),
+  op as (
+    select coalesce(sum(td.dagen * sj.tso_dagprijs), 0) as bedrag
+    from public.betalingen b
+    join public.leerlingen l on l.id = b.leerling_id
+    join public.groepen g on g.id = l.groep_id
+    join public.schooljaren sj on sj.id = g.schooljaar_id
+    join public.tso_dagen td on td.groep_id = g.id and td.maand = b.maand and td.dagen > 0
+    where b.bedrag = 0
+      and g.schooljaar_id = p_schooljaar_id
+      and l.leergeld = false
+      and (l.instroom_maand is null or b.maand >= l.instroom_maand)
+      and not (b.maand = any(coalesce(l.uitgesloten_maanden, '{}'::smallint[])))
+  )
+  select
+    coalesce((select sum(bedrag) from bet), 0)::numeric,
+    (select count(*) from bet)::bigint,
+    (select count(*) from bet where bedrag > 0)::bigint,
+    (select count(*) from ll where leergeld)::bigint,
+    (select count(*) from ll)::bigint,
+    (select bedrag from op)::numeric;
 $$;

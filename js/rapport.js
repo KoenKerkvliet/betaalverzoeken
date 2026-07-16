@@ -13,7 +13,7 @@ import { decryptText, isUnlocked } from './crypto.js';
 import { getHuidigSchooljaar } from './state.js';
 import { MAANDEN } from './config.js';
 import { euro } from './supabaseClient.js';
-import { escapeAttr } from './util.js';
+import { escapeAttr, decryptRegelingen } from './util.js';
 
 // --- Gedeelde PDF-helpers -------------------------------------------------
 
@@ -56,11 +56,12 @@ function volledigeNaam(v, a) {
 }
 
 // Bepaalt of/waarom een leerling in maand M niet meedoet aan de TSO.
+// Verwacht l.regelingenPlain (ontsleutelde opmerkingen).
 function uitsluitReden(l, M) {
   const redenen = [];
   if (l.leergeld) redenen.push('Leergeld');
   if (l.instroom_maand && M < l.instroom_maand) redenen.push('Nog niet ingestroomd');
-  const reg = l.regelingen || {};
+  const reg = l.regelingenPlain || {};
   if (Object.prototype.hasOwnProperty.call(reg, String(M))) {
     const note = (reg[String(M)] || '').trim();
     redenen.push(note ? `Regeling: ${note}` : 'Regeling');
@@ -181,6 +182,7 @@ async function genereerPdf(sj, gekozenGroepen, maand, alleGroepen) {
   const uitgesloten = [];
   const actieNodig = [];
   for (const r of rows) {
+    r.regelingenPlain = await decryptRegelingen(r.regelingen);
     const redenenNu = uitsluitReden(r, maand);
     const redenenVorig = maand > 1 ? uitsluitReden(r, maand - 1) : [];
     const inUitgesloten = redenenNu.length > 0;

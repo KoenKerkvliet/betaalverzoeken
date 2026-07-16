@@ -4,11 +4,20 @@ import {
   getInstellingen,
   getSchooljaren,
   getLeerlingen,
+  updateLeerling,
   addOvergemaakt,
   getOvergemaaktOpmerkingen,
 } from './data.js';
 import { MAANDEN } from './config.js';
-import { parseBedrag, escapeAttr, pseudoniem, normaliseer } from './util.js';
+import {
+  parseBedrag,
+  escapeAttr,
+  pseudoniem,
+  normaliseer,
+  regelingenBevatLegacy,
+  decryptRegelingen,
+  encryptRegelingen,
+} from './util.js';
 import { restoreKey, isUnlocked, lock, decryptText } from './crypto.js';
 import {
   setHuidigSchooljaar,
@@ -312,6 +321,25 @@ async function ontgrendelIndienNodig() {
 
 window.addEventListener('hashchange', render);
 
+// Eenmalige migratie: oude (leesbare) regeling-opmerkingen versleutelen.
+// Draait alleen zolang er nog legacy-waarden zijn; daarna slaat de vlag 'm over.
+async function migreerRegelingen() {
+  if (localStorage.getItem('regelingen_versleuteld') === '1') return;
+  try {
+    const rows = await getLeerlingen();
+    const legacy = rows.filter(
+      (r) => r.regelingen && Object.keys(r.regelingen).length && regelingenBevatLegacy(r.regelingen)
+    );
+    for (const r of legacy) {
+      const plain = await decryptRegelingen(r.regelingen);
+      await updateLeerling(r.id, { regelingen: await encryptRegelingen(plain) });
+    }
+    localStorage.setItem('regelingen_versleuteld', '1');
+  } catch (e) {
+    console.error(e);
+  }
+}
+
 // Vraagt de 2FA-code als er een geverifieerde factor is (aal1 → aal2).
 async function mfaIndienNodig() {
   if (await mfaChallengeNodig()) {
@@ -325,6 +353,7 @@ async function mfaIndienNodig() {
   if (!sessie) return; // vereisSessie stuurt zelf door naar login
   await mfaIndienNodig();
   await ontgrendelIndienNodig();
+  await migreerRegelingen();
   await laadSchooljaren();
   if (!window.location.hash) window.location.hash = '#/overzicht';
   await renderNav();

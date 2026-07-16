@@ -16,7 +16,7 @@ import {
 } from './data.js';
 import { encryptText, decryptText, isUnlocked } from './crypto.js';
 import { getHuidigSchooljaar } from './state.js';
-import { parseBedrag, huidigeSchoolMaand } from './util.js';
+import { parseBedrag, huidigeSchoolMaand, decryptRegelingen, encryptRegelingen } from './util.js';
 
 // Maakt van {voornaam, achternaam} het pseudoniem "Voornaam A." — de initiaal
 // is die van de achternaam-kern (laatste woord), dus tussenvoegsels tellen niet.
@@ -35,9 +35,10 @@ function escapeAttr(s) {
 
 // Status van een cel voor een leerling/maand: arceerklasse + tooltip.
 // Volgorde: vóór instroom (grijs) > regeling (rood) > uitgesloten (blauw).
+// Gebruikt regelingenPlain (client-side ontsleutelde opmerkingen).
 function celStatus(l, maand) {
   if (l.instroom_maand && maand < l.instroom_maand) return { klasse: 'voor-instroom', title: '' };
-  const reg = l.regelingen || {};
+  const reg = l.regelingenPlain || {};
   if (Object.prototype.hasOwnProperty.call(reg, String(maand))) {
     return { klasse: 'regeling', title: reg[String(maand)] || '' };
   }
@@ -82,6 +83,8 @@ export async function renderGroep(root, id) {
       leerlingen.push({ id: r.id, voornaam: '⚠︎ onleesbaar', achternaam: '', ...extra });
     }
   }
+  // Regeling-opmerkingen ontsleutelen voor weergave (tooltip + menu).
+  for (const l of leerlingen) l.regelingenPlain = await decryptRegelingen(l.regelingen);
   leerlingen.sort((x, y) => x.voornaam.localeCompare(y.voornaam, 'nl'));
 
   // Notities (logboek) per leerling — alleen rijen ophalen; tekst pas ontsleutelen
@@ -296,7 +299,7 @@ export async function renderGroep(root, id) {
           }> ${m}</label>`
       ).join('');
 
-    const reg = l.regelingen || {};
+    const reg = l.regelingenPlain || {};
     const regelingOpties = MAANDEN.map((m, i) => {
       const maand = i + 1;
       const heeft = Object.prototype.hasOwnProperty.call(reg, String(maand));
@@ -440,17 +443,22 @@ export async function renderGroep(root, id) {
       });
     }
 
-    // Regeling (checkbox per maand + opmerking)
+    // Regeling (checkbox per maand + opmerking) — opmerking wordt versleuteld opgeslagen.
     const regCbs = [...menuEl.querySelectorAll('.reg-cb')];
     function syncRegeling() {
-      const reg = {};
+      const plain = {};
       regCbs.forEach((cb) => {
         const opm = menuEl.querySelector(`.reg-opm[data-maand="${cb.value}"]`);
-        if (cb.checked) reg[cb.value] = (opm?.value || '').trim();
+        if (cb.checked) plain[cb.value] = (opm?.value || '').trim();
       });
-      l.regelingen = reg;
+      l.regelingenPlain = plain;
       pasArceringToe(l);
-      updateLeerling(l.id, { regelingen: reg }).catch((e) => console.error(e));
+      encryptRegelingen(plain)
+        .then((enc) => {
+          l.regelingen = enc;
+          return updateLeerling(l.id, { regelingen: enc });
+        })
+        .catch((e) => console.error(e));
     }
     regCbs.forEach((cb) => {
       cb.addEventListener('change', () => {
