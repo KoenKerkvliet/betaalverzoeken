@@ -16,6 +16,7 @@ import {
   getOpgeslagenSchooljaarId,
 } from './state.js';
 import { toonGate } from './gate.js';
+import { openDeelnemersRapport } from './rapport.js';
 import { renderOverzicht } from './overzicht.js';
 import { renderInstellingen } from './instellingen.js';
 import { renderGroep } from './groep.js';
@@ -197,6 +198,23 @@ async function openBetalingModal() {
 }
 
 betalingBtn.addEventListener('click', openBetalingModal);
+
+// --- Overzichten-dropdown ----------------------------------------------
+const overzichtenBtn = document.getElementById('overzichten-btn');
+const overzichtenDropdown = document.getElementById('overzichten-dropdown');
+overzichtenBtn.addEventListener('click', (e) => {
+  e.stopPropagation();
+  overzichtenDropdown.hidden = !overzichtenDropdown.hidden;
+});
+overzichtenDropdown.addEventListener('click', (e) => {
+  const item = e.target.closest('[data-rapport]');
+  if (!item) return;
+  overzichtenDropdown.hidden = true;
+  if (item.dataset.rapport === 'deelnemers') openDeelnemersRapport();
+});
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('#overzichten-menu')) overzichtenDropdown.hidden = true;
+});
 
 // --- Leerling zoeken in de header --------------------------------------
 async function laadZoekIndex() {
