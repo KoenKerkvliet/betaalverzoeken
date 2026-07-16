@@ -138,12 +138,18 @@ async function genereerPdf(sj, gekozenGroepen, maand, alleGroepen) {
   const groepNaam = new Map(alleGroepen.map((g) => [g.id, g.naam]));
   const groepVolgorde = new Map(alleGroepen.map((g) => [g.id, g.volgorde]));
 
-  // Leerlingen ophalen + ontsleutelen, uitsluitingen bepalen.
+  // Leerlingen ophalen + ontsleutelen. Uitsluitingen deze maand + vergelijking
+  // met vorige maand (voor de sectie "Actie nodig").
   const rows = await getLeerlingen(groepIds);
   const uitgesloten = [];
+  const actieNodig = [];
   for (const r of rows) {
-    const redenen = uitsluitReden(r, maand);
-    if (!redenen.length) continue;
+    const redenenNu = uitsluitReden(r, maand);
+    const redenenVorig = maand > 1 ? uitsluitReden(r, maand - 1) : [];
+    const inUitgesloten = redenenNu.length > 0;
+    const inActie = maand > 1 && redenenVorig.length > 0 && redenenNu.length === 0;
+    if (!inUitgesloten && !inActie) continue;
+
     let naam = '⚠︎ onleesbaar';
     try {
       const { v, a } = JSON.parse(await decryptText(r.enc_naam, r.iv));
@@ -151,14 +157,15 @@ async function genereerPdf(sj, gekozenGroepen, maand, alleGroepen) {
     } catch {
       /* onleesbaar */
     }
-    uitgesloten.push({
-      naam,
-      groep: groepNaam.get(r.groep_id) || '',
-      volgorde: groepVolgorde.get(r.groep_id) ?? 99,
-      reden: redenen.join('; '),
-    });
+    const groep = groepNaam.get(r.groep_id) || '';
+    const volgorde = groepVolgorde.get(r.groep_id) ?? 99;
+
+    if (inUitgesloten) uitgesloten.push({ naam, groep, volgorde, reden: redenenNu.join('; ') });
+    if (inActie) actieNodig.push({ naam, groep, volgorde, reden: redenenVorig.join('; ') });
   }
-  uitgesloten.sort((a, b) => a.volgorde - b.volgorde || a.naam.localeCompare(b.naam, 'nl'));
+  const opVolgorde = (a, b) => a.volgorde - b.volgorde || a.naam.localeCompare(b.naam, 'nl');
+  uitgesloten.sort(opVolgorde);
+  actieNodig.sort(opVolgorde);
 
   // Groepslabel voor de kop
   const gekozenIds = new Set(groepIds);
@@ -183,7 +190,7 @@ async function genereerPdf(sj, gekozenGroepen, maand, alleGroepen) {
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(16);
   doc.setTextColor(31, 41, 55);
-  doc.text('TSO — niet-deelnemers', 14, 18);
+  doc.text('Deelnemers TSO', 14, 18);
 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(10);
@@ -198,8 +205,13 @@ async function genereerPdf(sj, gekozenGroepen, maand, alleGroepen) {
     35
   );
 
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(12);
+  doc.setTextColor(31, 41, 55);
+  doc.text('Niet-deelnemers (uitsluiten van betaalverzoek)', 14, 43);
+
   autoTable(doc, {
-    startY: 41,
+    startY: 46,
     head: [['Naam', 'Groep', 'Reden']],
     body: uitgesloten.length
       ? uitgesloten.map((u) => [u.naam, u.groep, u.reden])
@@ -210,6 +222,40 @@ async function genereerPdf(sj, gekozenGroepen, maand, alleGroepen) {
     columnStyles: { 0: { cellWidth: 60 }, 1: { cellWidth: 22 }, 2: { cellWidth: 'auto' } },
   });
 
+  // Sectie "Actie nodig": wie deed vorige maand niet mee, maar nu wél.
+  if (maand > 1) {
+    let y = doc.lastAutoTable.finalY + 12;
+    if (y > 250) {
+      doc.addPage();
+      y = 20;
+    }
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(12);
+    doc.setTextColor(31, 41, 55);
+    doc.text('Actie nodig — toevoegen aan betaalverzoek', 14, y);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+    doc.setTextColor(110, 110, 120);
+    doc.text(
+      `Deze leerling(en) waren vorige maand (${MAANDEN[maand - 2]}) nog uitgesloten en doen deze maand wél mee. Voeg ze toe aan de juiste betaalverzoek-groep.`,
+      14,
+      y + 5,
+      { maxWidth: 182 }
+    );
+
+    autoTable(doc, {
+      startY: y + 12,
+      head: [['Naam', 'Groep', `Vorige maand uitgesloten wegens`]],
+      body: actieNodig.length
+        ? actieNodig.map((u) => [u.naam, u.groep, u.reden])
+        : [['—', '—', 'Geen wijzigingen ten opzichte van vorige maand']],
+      styles: { fontSize: 9, cellPadding: 2.5 },
+      headStyles: { fillColor: [217, 119, 6], textColor: 255 },
+      alternateRowStyles: { fillColor: [255, 251, 235] },
+      columnStyles: { 0: { cellWidth: 60 }, 1: { cellWidth: 22 }, 2: { cellWidth: 'auto' } },
+    });
+  }
+
   const slug = `${MAANDEN[maand - 1]}`.toLowerCase().replace(/[^a-z0-9]+/g, '-');
-  doc.save(`niet-deelnemers-tso-${slug}.pdf`);
+  doc.save(`deelnemers-tso-${slug}.pdf`);
 }
