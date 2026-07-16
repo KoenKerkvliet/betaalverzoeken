@@ -1,11 +1,48 @@
 // Rapporten — volledig in de browser gegenereerd (PDF via jsPDF), niets wordt
 // opgeslagen. Namen worden lokaal ontsleuteld.
 
-import { getGroepen, getLeerlingen } from './data.js';
+import {
+  getGroepen,
+  getLeerlingen,
+  getOpenstaand,
+  getBetalingenPerMaand,
+  getOvergemaakt,
+  getTotaaloverzicht,
+} from './data.js';
 import { decryptText, isUnlocked } from './crypto.js';
 import { getHuidigSchooljaar } from './state.js';
 import { MAANDEN } from './config.js';
+import { euro } from './supabaseClient.js';
 import { escapeAttr } from './util.js';
+
+// --- Gedeelde PDF-helpers -------------------------------------------------
+
+async function laadPdf() {
+  const jspdfMod = await import('https://esm.sh/jspdf@2.5.2');
+  const autoTable = (await import('https://esm.sh/jspdf-autotable@3.8.4')).default;
+  return { jsPDF: jspdfMod.jsPDF || jspdfMod.default, autoTable };
+}
+
+function pdfKop(doc, titel, sj, regels) {
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(16);
+  doc.setTextColor(31, 41, 55);
+  doc.text(titel, 14, 18);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(10);
+  doc.setTextColor(110, 110, 120);
+  doc.text(`Schooljaar ${sj.naam} · gegenereerd ${new Date().toLocaleString('nl-NL')}`, 14, 25);
+  let y = 30;
+  (regels || []).forEach((r) => {
+    doc.text(r, 14, y);
+    y += 5;
+  });
+  return y + 4;
+}
+
+const KOP_STIJL = { fillColor: [109, 40, 217], textColor: 255 };
+const VOET_STIJL = { fillColor: [237, 233, 254], textColor: [31, 41, 55], fontStyle: 'bold' };
+const WISSEL_STIJL = { fillColor: [247, 247, 251] };
 
 // Kalendermaand → schoolmaand (1..10).
 function huidigeSchoolMaand() {
@@ -258,4 +295,166 @@ async function genereerPdf(sj, gekozenGroepen, maand, alleGroepen) {
 
   const slug = `${MAANDEN[maand - 1]}`.toLowerCase().replace(/[^a-z0-9]+/g, '-');
   doc.save(`deelnemers-tso-${slug}.pdf`);
+}
+
+// Ontsleutelt de namen van alle leerlingen van dit schooljaar → Map(id → naam).
+async function naamMapVoorSchooljaar(sj) {
+  const groepen = await getGroepen(sj.id);
+  const rows = await getLeerlingen(groepen.map((g) => g.id));
+  const map = new Map();
+  for (const r of rows) {
+    let naam = '⚠︎ onleesbaar';
+    try {
+      const { v, a } = JSON.parse(await decryptText(r.enc_naam, r.iv));
+      naam = volledigeNaam(v, a);
+    } catch {
+      /* onleesbaar */
+    }
+    map.set(r.id, naam);
+  }
+  return map;
+}
+
+// --- Rapport: Openstaande betalingen --------------------------------------
+export async function openstaandeBetalingenRapport() {
+  const sj = getHuidigSchooljaar();
+  if (!sj) return;
+  if (!isUnlocked()) {
+    alert('De encryptie is niet ontgrendeld. Herlaad de pagina en voer je passphrase in.');
+    return;
+  }
+
+  const naamMap = await naamMapVoorSchooljaar(sj);
+  const rows = (await getOpenstaand(sj.id))
+    .map((r) => ({
+      naam: naamMap.get(r.leerling_id) || '?',
+      groep: r.groep,
+      volgorde: r.volgorde,
+      maanden: (r.posten || [])
+        .map((p) => `${MAANDEN[p.maand - 1]} (${euro.format(Number(p.bedrag))})`)
+        .join(', '),
+      totaal: Number(r.totaal),
+    }))
+    .sort((a, b) => a.volgorde - b.volgorde || a.naam.localeCompare(b.naam, 'nl'));
+  const grand = rows.reduce((s, r) => s + r.totaal, 0);
+
+  const { jsPDF, autoTable } = await laadPdf();
+  const doc = new jsPDF();
+  const y = pdfKop(doc, 'Openstaande betalingen', sj, [
+    `${rows.length} leerling(en) · totaal openstaand ${euro.format(grand)}`,
+  ]);
+
+  autoTable(doc, {
+    startY: y,
+    head: [['Naam', 'Groep', 'Niet betaald', 'Openstaand']],
+    body: rows.length
+      ? rows.map((r) => [r.naam, r.groep, r.maanden, euro.format(r.totaal)])
+      : [['—', '—', 'Iedereen heeft betaald 🎉', '—']],
+    foot: rows.length ? [['', '', 'Totaal openstaand', euro.format(grand)]] : undefined,
+    styles: { fontSize: 9, cellPadding: 2.5 },
+    headStyles: KOP_STIJL,
+    footStyles: VOET_STIJL,
+    alternateRowStyles: WISSEL_STIJL,
+    columnStyles: { 0: { cellWidth: 48 }, 1: { cellWidth: 18 }, 3: { cellWidth: 24, halign: 'right' } },
+  });
+
+  doc.save(`openstaande-betalingen-${sj.naam}.pdf`);
+}
+
+// --- Rapport: Binnengekomen betalingen ------------------------------------
+export async function binnengekomenBetalingenRapport() {
+  const sj = getHuidigSchooljaar();
+  if (!sj) return;
+
+  const binMap = new Map((await getBetalingenPerMaand(sj.id)).map((r) => [r.maand, Number(r.totaal)]));
+  const ogMap = {};
+  for (const o of await getOvergemaakt(sj.id)) ogMap[o.maand] = (ogMap[o.maand] || 0) + Number(o.bedrag);
+
+  const rijen = MAANDEN.map((m, i) => ({
+    maand: m,
+    binnen: binMap.get(i + 1) || 0,
+    over: ogMap[i + 1] || 0,
+  }));
+  const totBin = rijen.reduce((s, r) => s + r.binnen, 0);
+  const totOver = rijen.reduce((s, r) => s + r.over, 0);
+
+  const { jsPDF, autoTable } = await laadPdf();
+  const doc = new jsPDF();
+  const y = pdfKop(doc, 'Binnengekomen betalingen', sj, [
+    `Daadwerkelijk overgemaakt door ouders · totaal ${euro.format(totBin)}`,
+  ]);
+
+  autoTable(doc, {
+    startY: y,
+    head: [['Maand', 'Binnengekomen', 'Overgemaakt (gemeld)']],
+    body: rijen.map((r) => [
+      r.maand,
+      r.binnen ? euro.format(r.binnen) : '—',
+      r.over ? euro.format(r.over) : '—',
+    ]),
+    foot: [['Totaal', euro.format(totBin), euro.format(totOver)]],
+    styles: { fontSize: 10, cellPadding: 3 },
+    headStyles: KOP_STIJL,
+    footStyles: VOET_STIJL,
+    columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' } },
+  });
+
+  doc.save(`binnengekomen-betalingen-${sj.naam}.pdf`);
+}
+
+// --- Rapport: Totaaloverzicht ---------------------------------------------
+export async function totaaloverzichtRapport() {
+  const sj = getHuidigSchooljaar();
+  if (!sj) return;
+
+  const t = await getTotaaloverzicht(sj.id);
+  if (!t) return;
+  const binMap = new Map((await getBetalingenPerMaand(sj.id)).map((r) => [r.maand, Number(r.totaal)]));
+  const totOver = (await getOvergemaakt(sj.id)).reduce((s, o) => s + Number(o.bedrag), 0);
+
+  const binnen = Number(t.binnengekomen);
+  const openstaand = Number(t.openstaand);
+  const uitgevraagd = Number(t.aantal_uitgevraagd);
+  const betaald = Number(t.aantal_betaald);
+  const pctAantal = uitgevraagd ? (betaald / uitgevraagd) * 100 : 0;
+  const verwacht = binnen + openstaand;
+  const pctBedrag = verwacht ? (binnen / verwacht) * 100 : 0;
+
+  const { jsPDF, autoTable } = await laadPdf();
+  const doc = new jsPDF();
+  const y = pdfKop(doc, 'Totaaloverzicht TSO', sj, []);
+
+  autoTable(doc, {
+    startY: y,
+    theme: 'plain',
+    body: [
+      ['Totaal binnengekomen', euro.format(binnen)],
+      ['Totaal openstaand', euro.format(openstaand)],
+      ['Betaald (aantal betaalverzoeken)', `${betaald} van ${uitgevraagd}  (${pctAantal.toFixed(1)}%)`],
+      ['Betaald (bedrag)', `${euro.format(binnen)} van ${euro.format(verwacht)}  (${pctBedrag.toFixed(1)}%)`],
+      ['Leerlingen met leergeld', `${t.aantal_leergeld} van ${t.aantal_leerlingen}`],
+      ['Overgemaakt (gemeld op rekening)', euro.format(totOver)],
+    ],
+    styles: { fontSize: 11, cellPadding: 3 },
+    columnStyles: { 0: { fontStyle: 'bold', cellWidth: 90 } },
+  });
+
+  let y2 = doc.lastAutoTable.finalY + 12;
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(12);
+  doc.setTextColor(31, 41, 55);
+  doc.text('Binnengekomen per maand', 14, y2);
+
+  autoTable(doc, {
+    startY: y2 + 4,
+    head: [['Maand', 'Binnengekomen']],
+    body: MAANDEN.map((m, i) => [m, binMap.get(i + 1) ? euro.format(binMap.get(i + 1)) : '—']),
+    foot: [['Totaal', euro.format(binnen)]],
+    styles: { fontSize: 10, cellPadding: 2.5 },
+    headStyles: KOP_STIJL,
+    footStyles: VOET_STIJL,
+    columnStyles: { 1: { halign: 'right' } },
+  });
+
+  doc.save(`totaaloverzicht-tso-${sj.naam}.pdf`);
 }

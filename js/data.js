@@ -238,6 +238,12 @@ export async function getNotitieLeerlingen(schooljaarId) {
   return data ?? [];
 }
 
+export async function getTotaaloverzicht(schooljaarId) {
+  const { data, error } = await supabase.rpc('totaaloverzicht', { p_schooljaar_id: schooljaarId });
+  if (error) throw error;
+  return (data && data[0]) || null;
+}
+
 // Schoolbreed totaal per maand (server-side opgeteld, geen 1000-rijen-limiet).
 export async function getBetalingenPerMaand(schooljaarId) {
   const { data, error } = await supabase.rpc('betalingen_per_maand', {

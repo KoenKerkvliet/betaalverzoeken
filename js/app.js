@@ -16,7 +16,12 @@ import {
   getOpgeslagenSchooljaarId,
 } from './state.js';
 import { toonGate } from './gate.js';
-import { openDeelnemersRapport } from './rapport.js';
+import {
+  openDeelnemersRapport,
+  openstaandeBetalingenRapport,
+  binnengekomenBetalingenRapport,
+  totaaloverzichtRapport,
+} from './rapport.js';
 import { renderOverzicht } from './overzicht.js';
 import { renderInstellingen } from './instellingen.js';
 import { renderGroep } from './groep.js';
@@ -210,7 +215,13 @@ overzichtenDropdown.addEventListener('click', (e) => {
   const item = e.target.closest('[data-rapport]');
   if (!item) return;
   overzichtenDropdown.hidden = true;
-  if (item.dataset.rapport === 'deelnemers') openDeelnemersRapport();
+  const acties = {
+    deelnemers: openDeelnemersRapport,
+    openstaand: openstaandeBetalingenRapport,
+    binnengekomen: binnengekomenBetalingenRapport,
+    totaal: totaaloverzichtRapport,
+  };
+  acties[item.dataset.rapport]?.();
 });
 document.addEventListener('click', (e) => {
   if (!e.target.closest('#overzichten-menu')) overzichtenDropdown.hidden = true;
