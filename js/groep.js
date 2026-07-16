@@ -16,7 +16,7 @@ import {
 } from './data.js';
 import { encryptText, decryptText, isUnlocked } from './crypto.js';
 import { getHuidigSchooljaar } from './state.js';
-import { parseBedrag } from './util.js';
+import { parseBedrag, huidigeSchoolMaand } from './util.js';
 
 // Maakt van {voornaam, achternaam} het pseudoniem "Voornaam A." — de initiaal
 // is die van de achternaam-kern (laatste woord), dus tussenvoegsels tellen niet.
@@ -47,6 +47,7 @@ function celStatus(l, maand) {
 
 export async function renderGroep(root, id) {
   const schooljaar = getHuidigSchooljaar();
+  const huidigMaand = huidigeSchoolMaand();
 
   const groepen = schooljaar ? await getGroepen(schooljaar.id) : [];
   const groep = groepen.find((g) => g.id === id);
@@ -308,7 +309,18 @@ export async function renderGroep(root, id) {
       </div>`;
     }).join('');
 
+    const uitgeslotenAan = l.leergeld || (l.uitgesloten_maanden || []).includes(huidigMaand);
     return `
+      <label class="menu-uitgesloten" title="${
+        l.leergeld
+          ? 'Automatisch: leerling zit in Leergeld'
+          : 'Sluit deze leerling uit voor de huidige maand'
+      }">
+        <span>Uitgesloten <span class="muted">(${MAANDEN[huidigMaand - 1]})</span></span>
+        <input type="checkbox" class="uitgesloten-cb"${uitgeslotenAan ? ' checked' : ''}${
+      l.leergeld ? ' disabled' : ''
+    } />
+      </label>
       <div class="menu-sectie">
         <button type="button" class="menu-kop" data-sectie="naam">Naam wijzigen <span>▾</span></button>
         <div class="menu-inhoud" data-inhoud="naam" hidden>
@@ -394,15 +406,19 @@ export async function renderGroep(root, id) {
       });
     });
 
-    // Maanden uitsluiten (checkboxes + "Alle maanden")
+    // Maanden uitsluiten (checkboxes + "Alle maanden" + snel-vinkje huidige maand)
     const alleCb = menuEl.querySelector('.alle-maanden');
     const maandCbs = [...menuEl.querySelectorAll('.maand-cb')];
+    const uitgeslotenCb = menuEl.querySelector('.uitgesloten-cb');
     function syncUitsluiten() {
       l.uitgesloten_maanden = maandCbs
         .filter((c) => c.checked)
         .map((c) => Number(c.value))
         .sort((a, b) => a - b);
       alleCb.checked = maandCbs.every((c) => c.checked);
+      if (uitgeslotenCb && !l.leergeld) {
+        uitgeslotenCb.checked = l.uitgesloten_maanden.includes(huidigMaand);
+      }
       pasArceringToe(l);
       updateLeerling(l.id, { uitgesloten_maanden: l.uitgesloten_maanden }).catch((e) =>
         console.error(e)
@@ -414,6 +430,15 @@ export async function renderGroep(root, id) {
       syncUitsluiten();
     });
     maandCbs.forEach((cb) => cb.addEventListener('change', syncUitsluiten));
+
+    // "Uitgesloten"-vinkje = huidige maand in/uit de uitgesloten maanden.
+    if (uitgeslotenCb && !l.leergeld) {
+      uitgeslotenCb.addEventListener('change', () => {
+        const maandCb = maandCbs.find((c) => Number(c.value) === huidigMaand);
+        if (maandCb) maandCb.checked = uitgeslotenCb.checked;
+        syncUitsluiten();
+      });
+    }
 
     // Regeling (checkbox per maand + opmerking)
     const regCbs = [...menuEl.querySelectorAll('.reg-cb')];

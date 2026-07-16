@@ -1,3 +1,10 @@
+// Kalendermaand → schoolmaand (1..10: Aug/sept .. Juni/juli).
+export function huidigeSchoolMaand() {
+  const cal = new Date().getMonth() + 1;
+  const map = { 8: 1, 9: 1, 10: 2, 11: 3, 12: 4, 1: 5, 2: 6, 3: 7, 4: 8, 5: 9, 6: 10, 7: 10 };
+  return map[cal] || 1;
+}
+
 // Pseudoniem "Voornaam A." — initiaal van de achternaam-kern (laatste woord).
 export function pseudoniem(v, a) {
   const kern = (a || '').trim().split(/\s+/).pop();
