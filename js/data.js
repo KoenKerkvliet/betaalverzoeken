@@ -58,6 +58,13 @@ export async function findOrCreateSchooljaar(naam, dagprijs = 1.75) {
   return data;
 }
 
+// Verwijdert een schooljaar; cascade ruimt groepen, leerlingen, betalingen,
+// tso-dagen, notities en overgemaakt-regels van dat jaar op.
+export async function deleteSchooljaar(id) {
+  const { error } = await supabase.from('schooljaren').delete().eq('id', id);
+  if (error) throw error;
+}
+
 export async function saveDagprijsSchooljaar(schooljaarId, prijs) {
   const { error } = await supabase
     .from('schooljaren')

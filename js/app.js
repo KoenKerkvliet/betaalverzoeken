@@ -7,6 +7,7 @@ import {
   updateLeerling,
   addOvergemaakt,
   getOvergemaaktOpmerkingen,
+  deleteSchooljaar,
 } from './data.js';
 import { MAANDEN } from './config.js';
 import {
@@ -31,6 +32,7 @@ import {
   openstaandeBetalingenRapport,
   binnengekomenBetalingenRapport,
   totaaloverzichtRapport,
+  backupExcel,
 } from './rapport.js';
 import { renderOverzicht } from './overzicht.js';
 import { renderInstellingen } from './instellingen.js';
@@ -230,6 +232,7 @@ overzichtenDropdown.addEventListener('click', (e) => {
     openstaand: openstaandeBetalingenRapport,
     binnengekomen: binnengekomenBetalingenRapport,
     totaal: totaaloverzichtRapport,
+    backup: backupExcel,
   };
   acties[item.dataset.rapport]?.();
 });
@@ -340,6 +343,35 @@ async function migreerRegelingen() {
   }
 }
 
+// Bewaartermijn: maximaal 1 afgerond schooljaar bewaren (jaargrens 1 augustus).
+// Oudere schooljaren worden na bevestiging definitief verwijderd.
+// Geeft true terug als er iets is verwijderd.
+async function bewaartermijnCheck() {
+  try {
+    const jaren = await getSchooljaren();
+    const nu = new Date();
+    const huidigStart = nu.getMonth() + 1 >= 8 ? nu.getFullYear() : nu.getFullYear() - 1;
+    let verwijderd = false;
+    for (const s of jaren) {
+      const m = String(s.naam).match(/^(\d{4})/);
+      if (!m || Number(m[1]) >= huidigStart - 1) continue;
+      const ok = window.confirm(
+        `Bewaartermijn: schooljaar ${s.naam} is ouder dan één afgerond schooljaar en mag volgens je bewaarbeleid weg.\n\n` +
+          `Nu definitief verwijderen? (groepen, leerlingen, betalingen en notities van dat jaar)\n\n` +
+          `Tip: maak eerst een back-up via Overzichten → Back-up (Excel).`
+      );
+      if (ok) {
+        await deleteSchooljaar(s.id);
+        verwijderd = true;
+      }
+    }
+    return verwijderd;
+  } catch (e) {
+    console.error(e);
+    return false;
+  }
+}
+
 // Vraagt de 2FA-code als er een geverifieerde factor is (aal1 → aal2).
 async function mfaIndienNodig() {
   if (await mfaChallengeNodig()) {
@@ -355,6 +387,7 @@ async function mfaIndienNodig() {
   await ontgrendelIndienNodig();
   await migreerRegelingen();
   await laadSchooljaren();
+  if (await bewaartermijnCheck()) await laadSchooljaren();
   if (!window.location.hash) window.location.hash = '#/overzicht';
   await renderNav();
   render();

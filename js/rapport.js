@@ -8,6 +8,9 @@ import {
   getBetalingenPerMaand,
   getOvergemaakt,
   getTotaaloverzicht,
+  getBetalingen,
+  getNotities,
+  getTsoDagen,
 } from './data.js';
 import { decryptText, isUnlocked } from './crypto.js';
 import { getHuidigSchooljaar } from './state.js';
@@ -315,6 +318,136 @@ async function naamMapVoorSchooljaar(sj) {
     map.set(r.id, naam);
   }
   return map;
+}
+
+// --- Back-up: volledige export naar Excel (client-side, niets opgeslagen) --
+// Bevat de ontsleutelde namen — bewaar het bestand op een veilige plek
+// (bijv. de OneDrive van school) en ruim oude versies op.
+export async function backupExcel() {
+  const sj = getHuidigSchooljaar();
+  if (!sj) return;
+  if (!isUnlocked()) {
+    alert('De encryptie is niet ontgrendeld. Herlaad de pagina en voer je passphrase in.');
+    return;
+  }
+
+  const XLSX = await import('https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs');
+  const groepen = (await getGroepen(sj.id)).sort((a, b) => a.volgorde - b.volgorde);
+
+  // Per groep laden (blijft ruim onder de 1000-rijen-limiet van de API).
+  const leerlingen = [];
+  const betalingen = [];
+  const notities = [];
+  for (const g of groepen) {
+    const rows = await getLeerlingen(g.id);
+    const perGroep = [];
+    const perId = new Map();
+    for (const r of rows) {
+      let v = '⚠︎ onleesbaar';
+      let a = '';
+      try {
+        ({ v, a } = JSON.parse(await decryptText(r.enc_naam, r.iv)));
+      } catch {
+        /* onleesbaar */
+      }
+      const l = {
+        id: r.id,
+        groep: g.naam,
+        voornaam: v,
+        achternaam: a,
+        leergeld: r.leergeld,
+        leergeld_bedrag: r.leergeld_bedrag,
+        instroom: r.instroom_maand,
+        uitgesloten: r.uitgesloten_maanden || [],
+        regelingen: await decryptRegelingen(r.regelingen),
+      };
+      perGroep.push(l);
+      perId.set(r.id, l);
+    }
+    perGroep.sort((x, y) => x.voornaam.localeCompare(y.voornaam, 'nl'));
+    leerlingen.push(...perGroep);
+
+    const ids = rows.map((r) => r.id);
+    betalingen.push(...(await getBetalingen(ids)));
+    for (const n of await getNotities(ids)) {
+      let actie = '⚠︎ onleesbaar';
+      try {
+        actie = await decryptText(n.enc_actie, n.iv);
+      } catch {
+        /* onleesbaar */
+      }
+      const l = perId.get(n.leerling_id);
+      notities.push({
+        Groep: g.naam,
+        Leerling: l ? volledigeNaam(l.voornaam, l.achternaam) : '?',
+        Datum: n.datum,
+        Actie: actie,
+      });
+    }
+  }
+
+  const betPerLeerling = new Map();
+  for (const b of betalingen) {
+    if (!betPerLeerling.has(b.leerling_id)) betPerLeerling.set(b.leerling_id, {});
+    betPerLeerling.get(b.leerling_id)[b.maand] = Number(b.bedrag);
+  }
+
+  const wsLeerlingen = XLSX.utils.json_to_sheet(
+    leerlingen.map((l) => ({
+      Groep: l.groep,
+      Voornaam: l.voornaam,
+      Achternaam: l.achternaam,
+      Leergeld: l.leergeld ? 'ja' : '',
+      'Leergeld bedrag': l.leergeld_bedrag != null ? Number(l.leergeld_bedrag) : '',
+      'Instroom vanaf': l.instroom ? MAANDEN[l.instroom - 1] : '',
+      'Uitgesloten maanden': l.uitgesloten.map((m) => MAANDEN[m - 1]).join(', '),
+      Regelingen: Object.entries(l.regelingen)
+        .map(([m, t]) => `${MAANDEN[m - 1]}${t ? ': ' + t : ''}`)
+        .join(' | '),
+    }))
+  );
+
+  const wsBetalingen = XLSX.utils.json_to_sheet(
+    leerlingen.map((l) => {
+      const per = betPerLeerling.get(l.id) || {};
+      const row = { Groep: l.groep, Leerling: volledigeNaam(l.voornaam, l.achternaam) };
+      MAANDEN.forEach((m, i) => {
+        row[m] = per[i + 1] != null ? per[i + 1] : '';
+      });
+      return row;
+    })
+  );
+
+  const dagen = await getTsoDagen(groepen.map((g) => g.id));
+  const dagenMap = new Map(dagen.map((d) => [`${d.groep_id}:${d.maand}`, d.dagen]));
+  const wsDagen = XLSX.utils.json_to_sheet(
+    groepen.map((g) => {
+      const row = { Groep: g.naam };
+      MAANDEN.forEach((m, i) => {
+        const d = dagenMap.get(`${g.id}:${i + 1}`);
+        row[m] = d != null ? d : '';
+      });
+      return row;
+    })
+  );
+
+  const wsOvergemaakt = XLSX.utils.json_to_sheet(
+    (await getOvergemaakt(sj.id)).map((o) => ({
+      Maand: MAANDEN[o.maand - 1],
+      Bedrag: Number(o.bedrag),
+      Opmerking: o.opmerking || '',
+    }))
+  );
+
+  const wsNotities = XLSX.utils.json_to_sheet(notities);
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, wsLeerlingen, 'Leerlingen');
+  XLSX.utils.book_append_sheet(wb, wsBetalingen, 'Betalingen');
+  XLSX.utils.book_append_sheet(wb, wsDagen, 'TSO-dagen');
+  XLSX.utils.book_append_sheet(wb, wsOvergemaakt, 'Overgemaakt');
+  XLSX.utils.book_append_sheet(wb, wsNotities, 'Notities');
+  XLSX.writeFile(wb, `tso-backup-${sj.naam}.xlsx`);
 }
 
 // --- Rapport: Openstaande betalingen --------------------------------------
