@@ -103,8 +103,12 @@ export async function renderInstellingen(root) {
 }
 
 function qrHtml(qr) {
-  const s = String(qr || '').trim();
-  return s.startsWith('<') ? s : `<img class="mfa-qr" src="${s}" alt="QR-code" />`;
+  const s = String(qr || '');
+  // Supabase geeft de QR als SVG-data-URI met onge-escapete quotes; render die
+  // inline. Alleen een echte (base64) data-URI zonder <svg> gaat via <img>.
+  const svgIdx = s.indexOf('<svg');
+  if (svgIdx !== -1) return s.slice(svgIdx);
+  return `<img class="mfa-qr" src="${s}" alt="QR-code" />`;
 }
 
 async function bouwMfaSectie(container) {
