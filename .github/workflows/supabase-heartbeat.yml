@@ -1,0 +1,29 @@
+name: Supabase heartbeat
+
+# Voorkomt dat het Supabase free-tier project gepauzeerd wordt wegens
+# inactiviteit. Doet uitsluitend een lichte lees-request (geen schrijfactie,
+# geen dummydata) tegen de REST-API. De anon/publishable key is bewust
+# publiek — dezelfde key staat ook in js/config.js — en geeft zonder
+# ingelogde sessie sowieso geen data terug (RLS vereist authenticated).
+
+on:
+  schedule:
+    - cron: '0 5 * * *' # dagelijks 05:00 UTC
+  workflow_dispatch: {} # handmatig te starten via het "Actions"-tabblad
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Lichte lees-request naar Supabase
+        run: |
+          key="sb_publishable_967lK1PyGtWb34WlIYBuqw_i5ni1TmG"
+          status=$(curl -s -o /dev/null -w "%{http_code}" \
+            "https://qssxuenhqzpjynjensir.supabase.co/rest/v1/instellingen?select=id&limit=1" \
+            -H "apikey: $key" \
+            -H "Authorization: Bearer $key")
+          echo "HTTP status: $status"
+          if [ "$status" -ge 500 ]; then
+            echo "Supabase gaf een serverfout terug."
+            exit 1
+          fi
