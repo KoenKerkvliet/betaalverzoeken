@@ -204,7 +204,7 @@ export async function renderOverzicht(root) {
   const overgemaaktTotaal = () =>
     Object.keys(overgemaaktPerMaand).reduce((a, m) => a + overgemaaktSom(Number(m)), 0);
 
-  // Openstaand: leerlingen met €0,00-maanden, met de ontsleutelde namen.
+  // Openstaand: verschuldigd min betaald per maand, met de ontsleutelde namen.
   const naamMap = new Map(alleLeerlingen.map((l) => [l.id, l]));
   const openstaandRijen = (await getOpenstaand(schooljaar.id))
     .map((r) => ({ ...r, leerling: naamMap.get(r.leerling_id) }))
@@ -347,7 +347,7 @@ export async function renderOverzicht(root) {
 
     <section class="kaart breed-sectie">
       <h2>Openstaand</h2>
-      <p class="muted">Leerlingen met nog niet betaalde maanden (€0,00) — ouder moet nog betalen. Leergeld-leerlingen en uitgesloten/vóór-instroom-maanden tellen niet mee.</p>
+      <p class="muted">Wat er per leerling nog binnen moet komen: verschuldigd (TSO-dagen × dagprijs) min wat er betaald is, voor elke maand t/m de huidige. Ook lege maanden en deelbetalingen tellen mee. Leergeld, regelingen en uitgesloten/vóór-instroom-maanden niet.</p>
       <table class="import-tabel openstaand-tabel">
         <thead><tr><th>Naam</th><th>Groep</th><th>Niet betaald</th><th>Openstaand</th></tr></thead>
         <tbody>${openstaandRijenHtml(openstaandRijen, openstaandTotaal)}</tbody>

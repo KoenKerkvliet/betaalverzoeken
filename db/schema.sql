@@ -203,36 +203,67 @@ as $$
   group by b.maand;
 $$;
 
--- Openstaand: leerlingen met €0,00-maanden (ouder moet nog betalen). Filtert
--- leergeld-leerlingen en vóór-instroom/uitgesloten maanden eruit; geeft per
--- leerling de niet-betaalde maanden + het openstaande totaalbedrag.
+-- Openstaand: verschuldigd (tso-dagen x dagprijs) min wat er betaald is, per
+-- leerling per maand. Telt alleen maanden mee die al geweest zijn (bij een
+-- afgerond schooljaar: alle 10). Leergeld-leerlingen, vóór-instroom- en
+-- uitgesloten maanden en maanden met een regeling vallen eruit. Lege maanden
+-- (geen betaalregel) en deelbetalingen tellen dus wél mee.
 create or replace function public.openstaand(p_schooljaar_id uuid)
 returns table(leerling_id uuid, groep text, volgorde int, posten jsonb, totaal numeric)
 language sql
 stable
 set search_path = ''
 as $$
-  select
-    b.leerling_id,
-    g.naam as groep,
-    g.volgorde,
-    jsonb_agg(
-      jsonb_build_object('maand', b.maand, 'bedrag', td.dagen * sj.tso_dagprijs)
-      order by b.maand
-    ) as posten,
-    sum(td.dagen * sj.tso_dagprijs)::numeric as totaal
-  from public.betalingen b
-  join public.leerlingen l on l.id = b.leerling_id
-  join public.groepen g on g.id = l.groep_id
-  join public.schooljaren sj on sj.id = g.schooljaar_id
-  join public.tso_dagen td
-    on td.groep_id = g.id and td.maand = b.maand and td.dagen > 0
-  where b.bedrag = 0
-    and g.schooljaar_id = p_schooljaar_id
-    and l.leergeld = false
-    and (l.instroom_maand is null or b.maand >= l.instroom_maand)
-    and not (b.maand = any(coalesce(l.uitgesloten_maanden, '{}'::smallint[])))
-  group by b.leerling_id, g.naam, g.volgorde;
+  with huidig as (
+    select
+      case when extract(month from current_date)::int >= 8
+           then extract(year from current_date)::int
+           else extract(year from current_date)::int - 1
+      end as start_jaar,
+      case extract(month from current_date)::int
+        when 8 then 1 when 9 then 1 when 10 then 2 when 11 then 3 when 12 then 4
+        when 1 then 5 when 2 then 6 when 3 then 7 when 4 then 8 when 5 then 9
+        when 6 then 10 when 7 then 10
+      end as school_maand
+  ),
+  jaar as (
+    -- tot_maand = t/m welke schoolmaand we meetellen
+    select sj.id, sj.tso_dagprijs,
+      case
+        when coalesce((substring(sj.naam from '^[0-9]{4}'))::int, h.start_jaar) < h.start_jaar then 10
+        when coalesce((substring(sj.naam from '^[0-9]{4}'))::int, h.start_jaar) = h.start_jaar then h.school_maand
+        else 0
+      end as tot_maand
+    from public.schooljaren sj
+    cross join huidig h
+    where sj.id = p_schooljaar_id
+  ),
+  verschuldigd as (
+    select l.id as leerling_id, g.naam as groep, g.volgorde, td.maand,
+           (td.dagen * j.tso_dagprijs)::numeric as bedrag
+    from public.leerlingen l
+    join public.groepen g on g.id = l.groep_id
+    join jaar j on j.id = g.schooljaar_id
+    join public.tso_dagen td
+      on td.groep_id = g.id and td.dagen > 0 and td.maand <= j.tot_maand
+    where l.leergeld = false
+      and (l.instroom_maand is null or td.maand >= l.instroom_maand)
+      and not (td.maand = any(coalesce(l.uitgesloten_maanden, '{}'::smallint[])))
+      and not (coalesce(l.regelingen, '{}'::jsonb) ? td.maand::text)
+  ),
+  posten as (
+    select v.leerling_id, v.groep, v.volgorde, v.maand,
+           (v.bedrag - coalesce(b.bedrag, 0))::numeric as open_bedrag
+    from verschuldigd v
+    left join public.betalingen b
+      on b.leerling_id = v.leerling_id and b.maand = v.maand
+    where coalesce(b.bedrag, 0) < v.bedrag
+  )
+  select p.leerling_id, p.groep, p.volgorde,
+         jsonb_agg(jsonb_build_object('maand', p.maand, 'bedrag', p.open_bedrag) order by p.maand) as posten,
+         sum(p.open_bedrag)::numeric as totaal
+  from posten p
+  group by p.leerling_id, p.groep, p.volgorde;
 $$;
 
 -- Leerlingen met notities (aantal + laatste datum) per schooljaar.
@@ -251,7 +282,8 @@ as $$
   group by n.leerling_id, g.naam, g.id, g.volgorde;
 $$;
 
--- Totaaloverzicht: kerncijfers voor het Totaaloverzicht-rapport.
+-- Totaaloverzicht: kerncijfers voor het Totaaloverzicht-rapport. Gebruikt
+-- dezelfde openstaand-definitie als de Openstaand-sectie op het Overzicht.
 create or replace function public.totaaloverzicht(p_schooljaar_id uuid)
 returns table(
   binnengekomen numeric,
@@ -275,19 +307,6 @@ as $$
     select b.bedrag
     from public.betalingen b
     join ll on ll.id = b.leerling_id
-  ),
-  op as (
-    select coalesce(sum(td.dagen * sj.tso_dagprijs), 0) as bedrag
-    from public.betalingen b
-    join public.leerlingen l on l.id = b.leerling_id
-    join public.groepen g on g.id = l.groep_id
-    join public.schooljaren sj on sj.id = g.schooljaar_id
-    join public.tso_dagen td on td.groep_id = g.id and td.maand = b.maand and td.dagen > 0
-    where b.bedrag = 0
-      and g.schooljaar_id = p_schooljaar_id
-      and l.leergeld = false
-      and (l.instroom_maand is null or b.maand >= l.instroom_maand)
-      and not (b.maand = any(coalesce(l.uitgesloten_maanden, '{}'::smallint[])))
   )
   select
     coalesce((select sum(bedrag) from bet), 0)::numeric,
@@ -295,5 +314,5 @@ as $$
     (select count(*) from bet where bedrag > 0)::bigint,
     (select count(*) from ll where leergeld)::bigint,
     (select count(*) from ll)::bigint,
-    (select bedrag from op)::numeric;
+    coalesce((select sum(o.totaal) from public.openstaand(p_schooljaar_id) o), 0)::numeric;
 $$;
