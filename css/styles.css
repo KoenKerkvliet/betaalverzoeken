@@ -613,6 +613,65 @@ body {
 .bp-acties { display: flex; gap: 8px; margin-top: 10px; }
 .bp-acties .btn { padding: 6px 10px; font-size: 13px; }
 
+/* "Betaald"-vinkje bovenin de bedrag-popover */
+.bp-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  margin-bottom: 10px;
+  border: 1px solid var(--rand);
+  border-radius: 8px;
+  background: #f0fdf4;
+  cursor: pointer;
+  font-size: 14px;
+}
+.bp-check:hover { border-color: var(--groen); }
+.bp-check strong { color: var(--groen); }
+.bp-check input { width: 16px; height: 16px; accent-color: var(--groen); cursor: pointer; }
+.bp-check.uit { background: #f9fafb; cursor: default; opacity: 0.7; }
+.bp-check.uit:hover { border-color: var(--rand); }
+.bp-hint { margin: -6px 0 10px; font-size: 12px; color: var(--tekst-zacht); }
+
+/* Bulkmodus: cellen aanklikken en in één keer afvinken */
+.page-head-rij {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+#bulk-btn.actief { background: var(--paars); color: #fff; border-color: var(--paars); }
+.bulk-modus th.maand { cursor: pointer; }
+.bulk-modus th.maand:hover { background: var(--paars-licht); }
+.bulk-modus .leerling-knop { cursor: pointer; }
+/* Extra .overzicht-tabel voor specificiteit: wint van de arceerklassen
+   (.niet-betaald / .regeling / .uitgesloten) die verderop staan. */
+.overzicht-tabel .bedrag-cel.geselecteerd {
+  outline: 2px solid var(--paars);
+  outline-offset: -2px;
+  background: var(--paars-licht);
+}
+.bulk-balk {
+  position: fixed;
+  left: 50%;
+  bottom: 20px;
+  transform: translateX(-50%);
+  z-index: 70;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  background: var(--wit);
+  border: 1px solid var(--rand);
+  border-radius: 12px;
+  box-shadow: 0 10px 34px rgba(0, 0, 0, 0.16);
+  padding: 10px 14px;
+}
+.bulk-balk[hidden] { display: none; }
+.bulk-info { font-size: 13px; font-weight: 600; color: var(--tekst-zacht); }
+.bulk-acties { display: flex; gap: 8px; }
+.bulk-acties .btn { padding: 6px 12px; font-size: 13px; }
+.bulk-acties .btn:disabled { opacity: 0.5; cursor: default; }
+
 /* Notitie-kolom (logboek per leerling) */
 .notitie-kop {
   text-align: center;

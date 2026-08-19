@@ -8,7 +8,10 @@ import {
   getBetalingen,
   updateBetaling,
   upsertBetaling,
+  upsertBetalingen,
   deleteBetaling,
+  deleteBetalingen,
+  getTsoDagen,
   updateLeerling,
   getNotities,
   addNotitie,
@@ -17,6 +20,10 @@ import {
 import { encryptText, decryptText, isUnlocked } from './crypto.js';
 import { getHuidigSchooljaar } from './state.js';
 import { parseBedrag, huidigeSchoolMaand, decryptRegelingen, encryptRegelingen } from './util.js';
+
+// Staat de bulk-selectiemodus aan? Module-scope zodat hij een her-render van
+// de groepspagina (na een bulk-actie) overleeft.
+let bulkActief = false;
 
 // Maakt van {voornaam, achternaam} het pseudoniem "Voornaam A." — de initiaal
 // is die van de achternaam-kern (laatste woord), dus tussenvoegsels tellen niet.
@@ -104,7 +111,20 @@ export async function renderGroep(root, id) {
     maandTotaal[b.maand] = (maandTotaal[b.maand] || 0) + Number(b.bedrag);
   }
 
-  const maandKoppen = MAANDEN.map((m) => `<th class="maand">${m}</th>`).join('');
+  // Verschuldigd bedrag per maand voor deze groep = TSO-dagen × dagprijs
+  // (dezelfde bron als het Overzicht). Basis voor "markeer als betaald".
+  const dagprijs = Number(schooljaar?.tso_dagprijs) || 0;
+  const dagenPerMaand = {};
+  for (const t of await getTsoDagen([id])) dagenPerMaand[t.maand] = Number(t.dagen) || 0;
+  const verschuldigd = (maand) =>
+    Math.round((dagenPerMaand[maand] || 0) * dagprijs * 100) / 100;
+
+  const maandKoppen = MAANDEN.map(
+    (m, i) =>
+      `<th class="maand" data-maand="${i + 1}" title="Verschuldigd: ${euro.format(
+        verschuldigd(i + 1)
+      )}">${m}</th>`
+  ).join('');
 
   // Totaalrij: hoeveel geld is die maand binnengekomen (som van betalingen)
   const totaalCellen = MAANDEN.map((_, i) => {
@@ -164,7 +184,10 @@ export async function renderGroep(root, id) {
 
   root.innerHTML = `
     <header class="page-head">
-      <h1>Groep ${groep.naam}</h1>
+      <div class="page-head-rij">
+        <h1>Groep ${groep.naam}</h1>
+        <button type="button" class="btn btn-ghost" id="bulk-btn">Bulk betaald</button>
+      </div>
       <p class="muted">${leerlingen.length} leerling(en) · schooljaar ${schooljaar.naam} ·
         <span class="legenda"><span class="stip betaald"></span> betaald</span>
         <span class="legenda"><span class="swatch voor-instroom"></span> vóór instroom</span>
@@ -211,6 +234,16 @@ export async function renderGroep(root, id) {
         </label>
         <button type="submit" class="btn btn-primary">Toevoegen</button>
       </form>
+    </div>
+
+    <div class="bulk-balk" id="bulk-balk" hidden>
+      <span class="bulk-info" id="bulk-info">Niets geselecteerd</span>
+      <div class="bulk-acties">
+        <button type="button" class="btn btn-primary" id="bulk-betaald">Markeer betaald</button>
+        <button type="button" class="btn btn-ghost" id="bulk-open">Zet op € 0,00</button>
+        <button type="button" class="btn btn-ghost btn-danger" id="bulk-wis">Betaling wissen</button>
+        <button type="button" class="btn btn-ghost" id="bulk-stop">Klaar</button>
+      </div>
     </div>
   `;
 
@@ -487,7 +520,10 @@ export async function renderGroep(root, id) {
   root.querySelectorAll('.leerling-knop').forEach((knop) => {
     knop.addEventListener('click', () => {
       const l = leerlingen.find((x) => x.id === knop.dataset.leerling);
-      if (l) openMenu(l, knop);
+      if (!l) return;
+      // In bulkmodus selecteert een klik op de naam de hele rij.
+      if (bulkActief) selecteerRij(l);
+      else openMenu(l, knop);
     });
   });
 
@@ -514,8 +550,21 @@ export async function renderGroep(root, id) {
     bedragPop = document.createElement('div');
     bedragPop.className = 'bedrag-popover';
     bedragPop.tabIndex = -1;
+    const bedragVerschuldigd = verschuldigd(maand);
+    const alBetaald = rec && Number(rec.bedrag) === bedragVerschuldigd && bedragVerschuldigd > 0;
     bedragPop.innerHTML = `
-      <label class="bp-veld">Bedrag (€)
+      <label class="bp-check${bedragVerschuldigd > 0 ? '' : ' uit'}">
+        <input type="checkbox" class="bp-betaald"${alBetaald ? ' checked' : ''}${
+      bedragVerschuldigd > 0 ? '' : ' disabled'
+    } />
+        <span>Betaald <strong>${euro.format(bedragVerschuldigd)}</strong></span>
+      </label>
+      ${
+        bedragVerschuldigd > 0
+          ? ''
+          : '<p class="bp-hint">Geen TSO-dagen ingevuld voor deze maand (zie Overzicht).</p>'
+      }
+      <label class="bp-veld">Ander bedrag (€)
         <input type="text" class="bp-bedrag" inputmode="decimal" placeholder="0,00"
                value="${rec ? String(rec.bedrag).replace('.', ',') : ''}" />
       </label>
@@ -526,12 +575,34 @@ export async function renderGroep(root, id) {
     document.body.appendChild(bedragPop);
 
     const r = td.getBoundingClientRect();
-    bedragPop.style.top = `${Math.min(r.bottom + 4, window.innerHeight - 130)}px`;
+    bedragPop.style.top = `${Math.min(r.bottom + 4, window.innerHeight - 190)}px`;
     bedragPop.style.left = `${Math.min(r.left, window.innerWidth - 212)}px`;
 
     const inp = bedragPop.querySelector('.bp-bedrag');
-    inp.focus();
-    inp.select();
+    const betaaldCb = bedragPop.querySelector('.bp-betaald');
+    // Zonder TSO-dagen is het vinkje uitgeschakeld → dan het bedragveld focussen,
+    // anders sluit de popover niet vanzelf bij focusout.
+    if (betaaldCb.disabled) {
+      inp.focus();
+      inp.select();
+    } else {
+      betaaldCb.focus();
+    }
+
+    // Aanvinken = verschuldigd bedrag wegschrijven; uitvinken = betaling wissen.
+    betaaldCb.addEventListener('change', async () => {
+      try {
+        if (betaaldCb.checked) {
+          await upsertBetaling(leerlingId, maand, bedragVerschuldigd);
+        } else if (rec) {
+          await deleteBetaling(rec.id);
+        }
+      } catch (e) {
+        console.error(e);
+      }
+      sluitBedragPop();
+      await herrenderMetScroll();
+    });
 
     bedragPop.addEventListener('focusout', (e) => {
       if (!bedragPop.contains(e.relatedTarget)) sluitBedragPop();
@@ -693,6 +764,127 @@ export async function renderGroep(root, id) {
     overlay.querySelector('#not-actie').focus();
   }
 
+  // --- Bulkmodus: meerdere cellen tegelijk afvinken -----------------------
+
+  const selectie = new Set(); // "leerlingId:maand"
+  const bulkBtn = root.querySelector('#bulk-btn');
+  const bulkBalk = root.querySelector('#bulk-balk');
+  const bulkInfo = root.querySelector('#bulk-info');
+  const tabel = root.querySelector('.overzicht-tabel');
+
+  const celEl = (leerlingId, maand) =>
+    root.querySelector(`td.bedrag-cel[data-leerling="${leerlingId}"][data-maand="${maand}"]`);
+
+  // Cellen waar de leerling die maand sowieso niet hoeft te betalen (leergeld,
+  // vóór instroom, regeling of uitgesloten) slaan we over bij kolom/rij-selectie.
+  const celMeetelt = (l, maand) => !l.leergeld && !celStatus(l, maand).klasse;
+
+  function werkBalkBij() {
+    let totaal = 0;
+    for (const sleutel of selectie) totaal += verschuldigd(Number(sleutel.split(':')[1]));
+    bulkInfo.textContent = selectie.size
+      ? `${selectie.size} cel(len) · ${euro.format(totaal)}`
+      : 'Klik cellen aan — of een maandkop of leerlingnaam voor een hele kolom of rij.';
+    bulkBalk.querySelectorAll('.bulk-acties .btn').forEach((b) => {
+      if (b.id !== 'bulk-stop') b.disabled = selectie.size === 0;
+    });
+  }
+
+  function zetCel(leerlingId, maand, aan) {
+    const sleutel = `${leerlingId}:${maand}`;
+    const nieuw = aan === undefined ? !selectie.has(sleutel) : aan;
+    if (nieuw) selectie.add(sleutel);
+    else selectie.delete(sleutel);
+    celEl(leerlingId, maand)?.classList.toggle('geselecteerd', nieuw);
+  }
+
+  // Selecteert (of deselecteert) alle relevante cellen van een kolom of rij:
+  // is alles al geselecteerd, dan haalt een tweede klik de selectie weg.
+  function zetGroepje(paren) {
+    if (!paren.length) return;
+    const allesAan = paren.every(([lid, m]) => selectie.has(`${lid}:${m}`));
+    paren.forEach(([lid, m]) => zetCel(lid, m, !allesAan));
+    werkBalkBij();
+  }
+
+  function selecteerKolom(maand) {
+    zetGroepje(leerlingen.filter((l) => celMeetelt(l, maand)).map((l) => [l.id, maand]));
+  }
+
+  function selecteerRij(l) {
+    zetGroepje(
+      MAANDEN.map((_, i) => i + 1)
+        .filter((m) => celMeetelt(l, m))
+        .map((m) => [l.id, m])
+    );
+  }
+
+  function zetBulk(aan) {
+    bulkActief = aan;
+    tabel.classList.toggle('bulk-modus', aan);
+    bulkBalk.hidden = !aan;
+    bulkBtn.classList.toggle('actief', aan);
+    bulkBtn.textContent = aan ? 'Bulk sluiten' : 'Bulk betaald';
+    if (!aan) {
+      selectie.forEach((s) => {
+        const [lid, m] = s.split(':');
+        celEl(lid, Number(m))?.classList.remove('geselecteerd');
+      });
+      selectie.clear();
+    }
+    werkBalkBij();
+  }
+
+  async function bulkActie(soort) {
+    if (!selectie.size) return;
+    const rijen = [];
+    const teWissen = [];
+    let overgeslagen = 0;
+    for (const sleutel of selectie) {
+      const [leerlingId, m] = sleutel.split(':');
+      const maand = Number(m);
+      if (soort === 'wis') {
+        const rec = betaalRecord.get(sleutel);
+        if (rec) teWissen.push(rec.id);
+        continue;
+      }
+      const bedrag = soort === 'open' ? 0 : verschuldigd(maand);
+      if (soort === 'betaald' && bedrag <= 0) {
+        overgeslagen++;
+        continue;
+      }
+      rijen.push({ leerling_id: leerlingId, maand, bedrag });
+    }
+    try {
+      if (rijen.length) await upsertBetalingen(rijen);
+      if (teWissen.length) await deleteBetalingen(teWissen);
+    } catch (e) {
+      console.error(e);
+      window.alert('Opslaan mislukt: ' + (e.message || e));
+      return;
+    }
+    if (overgeslagen) {
+      window.alert(
+        `${overgeslagen} cel(len) overgeslagen: voor die maand staan nog geen TSO-dagen in het Overzicht.`
+      );
+    }
+    selectie.clear();
+    await herrenderMetScroll(); // bulkmodus blijft aan via bulkActief
+  }
+
+  bulkBtn.addEventListener('click', () => zetBulk(!bulkActief));
+  root.querySelector('#bulk-stop').addEventListener('click', () => zetBulk(false));
+  root.querySelector('#bulk-betaald').addEventListener('click', () => bulkActie('betaald'));
+  root.querySelector('#bulk-open').addEventListener('click', () => bulkActie('open'));
+  root.querySelector('#bulk-wis').addEventListener('click', () => bulkActie('wis'));
+
+  // Klik op een maandkop selecteert die hele kolom (alleen in bulkmodus).
+  root.querySelector('.overzicht-tabel thead').addEventListener('click', (e) => {
+    if (!bulkActief) return;
+    const th = e.target.closest('th.maand');
+    if (th) selecteerKolom(Number(th.dataset.maand));
+  });
+
   // Eén gedelegeerde klik-handler voor de hele tabel-body (werkt ook voor
   // dynamisch vervangen notitie-iconen).
   root.querySelector('.overzicht-tabel tbody').addEventListener('click', (e) => {
@@ -702,6 +894,15 @@ export async function renderGroep(root, id) {
       return;
     }
     const td = e.target.closest('td.bedrag-cel.klikbaar');
-    if (td) openBedragPop(td);
+    if (!td) return;
+    if (bulkActief) {
+      zetCel(td.dataset.leerling, Number(td.dataset.maand));
+      werkBalkBij();
+    } else {
+      openBedragPop(td);
+    }
   });
+
+  // Bulkmodus overleeft een her-render (na een bulk-actie of celwijziging).
+  if (bulkActief) zetBulk(true);
 }

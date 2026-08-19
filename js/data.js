@@ -229,6 +229,13 @@ export async function deleteBetaling(id) {
   if (error) throw error;
 }
 
+// Wist meerdere betalingen in één keer (bulk-actie op de groepspagina).
+export async function deleteBetalingen(ids) {
+  if (!ids?.length) return;
+  const { error } = await supabase.from('betalingen').delete().in('id', ids);
+  if (error) throw error;
+}
+
 // Openstaand: leerlingen met een of meer €0,00-maanden (server-side, met
 // leergeld/instroom/uitgesloten eruit gefilterd). Bevat maanden + totaalbedrag.
 export async function getOpenstaand(schooljaarId) {
