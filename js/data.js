@@ -178,6 +178,28 @@ export async function getBetalingen(leerlingIds) {
   return data ?? [];
 }
 
+// Betalingen van een reeks leerlingen voor een paar maanden. Haalt in blokken
+// op omdat Supabase per request maximaal 1000 rijen teruggeeft — schoolbreed
+// zijn het er bij meerdere maanden zo meer dan dat.
+export async function getBetalingenVoorMaanden(leerlingIds, maanden) {
+  if (!leerlingIds?.length || !maanden?.length) return [];
+  const alles = [];
+  const BLOK = 1000;
+  for (let start = 0; ; start += BLOK) {
+    const { data, error } = await supabase
+      .from('betalingen')
+      .select('*')
+      .in('leerling_id', leerlingIds)
+      .in('maand', maanden)
+      .order('id', { ascending: true })
+      .range(start, start + BLOK - 1);
+    if (error) throw error;
+    alles.push(...(data ?? []));
+    if (!data || data.length < BLOK) break;
+  }
+  return alles;
+}
+
 export async function upsertBetalingen(rows) {
   if (!rows.length) return;
   const { error } = await supabase

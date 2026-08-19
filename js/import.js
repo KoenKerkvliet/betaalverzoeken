@@ -12,6 +12,7 @@ import {
   getLeerlingen,
   insertLeerlingen,
   upsertBetalingen,
+  getBetalingenVoorMaanden,
   getTsoDagen,
 } from './data.js';
 import { encryptText, decryptText, isUnlocked } from './crypto.js';
@@ -486,8 +487,25 @@ async function verwerkExport(file, root, status) {
     });
   }
 
+  // Beveiliging tegen een oud exportbestand: een cel waar al een bedrag staat
+  // wordt nooit teruggezet naar €0,00. Zonder dit zou een her-import van een
+  // eerdere maand handmatig afgevinkte betalingen wissen.
+  const bestaand = new Map();
+  for (const b of await getBetalingenVoorMaanden([...perLeerling.keys()], maanden)) {
+    bestaand.set(`${b.leerling_id}:${b.maand}`, Number(b.bedrag));
+  }
+  const teSchrijven = [];
+  let beschermd = 0;
+  for (const b of betalingen) {
+    if (b.bedrag === 0 && (bestaand.get(`${b.leerling_id}:${b.maand}`) || 0) > 0) {
+      beschermd++;
+      continue;
+    }
+    teSchrijven.push(b);
+  }
+
   try {
-    await upsertBetalingen(betalingen);
+    await upsertBetalingen(teSchrijven);
   } catch (err) {
     console.error(err);
     status.className = 'msg error';
@@ -499,7 +517,7 @@ async function verwerkExport(file, root, status) {
   status.className = 'msg success';
   status.textContent = `${maandNamen}: ${perLeerling.size} leerling(en) verwerkt${
     nietGevonden.length ? `, ${nietGevonden.length} niet gekoppeld` : ''
-  }.`;
+  }${beschermd ? `, ${beschermd} bestaande betaling(en) behouden` : ''}.`;
 
   root.innerHTML = `
     <div class="kaart">
@@ -509,6 +527,11 @@ async function verwerkExport(file, root, status) {
           ? 'De betalingen zijn over de gekozen maanden verdeeld en staan bij de juiste leerlingen op de groepspagina\'s.'
           : 'De bedragen staan nu bij de juiste leerlingen op de groepspagina\'s.'
       }</p>
+      ${
+        beschermd
+          ? `<p class="msg info">${beschermd} cel(len) stonden al op een bedrag en zijn niet teruggezet naar €0,00. Klopt dat niet, pas ze dan handmatig aan op de groepspagina.</p>`
+          : ''
+      }
       ${
         nietGevonden.length
           ? `<details style="margin-top:8px">
