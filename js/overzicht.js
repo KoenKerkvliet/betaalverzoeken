@@ -4,6 +4,7 @@ import {
   getGroepen,
   getTsoDagen,
   upsertTsoDagen,
+  upsertTsoDagenBulk,
   getLeerlingen,
   setLeergeld,
   getBetalingenPerMaand,
@@ -27,6 +28,30 @@ function escapeHtml(s) {
     /[&<>"']/g,
     (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])
   );
+}
+
+// Deelt de groepen op in blokken die in de praktijk hetzelfde aantal TSO-dagen
+// hebben: jaargroep 1 apart, jaargroep 2 t/m 8 samen. Groepen zonder cijfer in
+// de naam vormen een eigen blok, zodat ze nooit stilzwijgend meegevuld worden.
+// Wordt gebruikt door de "hele maand invullen"-popup.
+function groepBlokken(groepen) {
+  const blokken = new Map();
+  for (const g of groepen) {
+    const jaar = Number((String(g.naam).match(/\d+/) || [])[0]);
+    const sleutel = !jaar ? 'overig' : jaar === 1 ? 'jaar1' : 'rest';
+    if (!blokken.has(sleutel)) blokken.set(sleutel, []);
+    blokken.get(sleutel).push(g);
+  }
+  return [...blokken.entries()].map(([sleutel, leden]) => ({
+    sleutel,
+    groepen: leden,
+    label:
+      leden.length === 1
+        ? leden[0].naam
+        : `${leden[0].naam} t/m ${leden[leden.length - 1].naam}`,
+    // Bij een lang blok is de opsomming ruis; dan volstaat het aantal.
+    namen: leden.length <= 6 ? leden.map((g) => g.naam).join(', ') : `${leden.length} groepen`,
+  }));
 }
 
 // Eén regel in het uitklap-popupje van "Overgemaakt".
@@ -232,11 +257,16 @@ export async function renderOverzicht(root) {
     const dicht = ingeklapt.has(maand) ? ' ingeklapt' : '';
     return `
       <th class="maand${dicht}" data-col="${maand}">
-        <button class="maand-kop" data-col="${maand}"
-                title="Klik om in of uit te klappen">
-          <span class="maand-vol">${m}</span>
-          <span class="maand-kort">${MAANDEN_KORT[i]}</span>
-        </button>
+        <div class="maand-inhoud">
+          <button type="button" class="maand-vul" data-vul="${maand}"
+                  title="Alle groepen in één keer invullen"
+                  aria-label="${m}: alle groepen in één keer invullen">↓</button>
+          <button class="maand-kop" data-col="${maand}"
+                  title="Klik om in of uit te klappen">
+            <span class="maand-vol">${m}</span>
+            <span class="maand-kort">${MAANDEN_KORT[i]}</span>
+          </button>
+        </div>
       </th>`;
   }).join('');
 
@@ -368,11 +398,12 @@ export async function renderOverzicht(root) {
 
   const status = root.querySelector('#save-status');
   let statusTimer = null;
-  function meldOpgeslagen() {
-    status.textContent = 'Opgeslagen ✓';
+  function meldOpgeslagen(tekst) {
+    status.textContent = tekst || 'Opgeslagen ✓';
+    status.classList.remove('fout');
     status.classList.add('zichtbaar');
     clearTimeout(statusTimer);
-    statusTimer = setTimeout(() => status.classList.remove('zichtbaar'), 1500);
+    statusTimer = setTimeout(() => status.classList.remove('zichtbaar'), tekst ? 3500 : 1500);
   }
 
   function herbereken() {
@@ -477,6 +508,139 @@ export async function renderOverzicht(root) {
       root
         .querySelectorAll(`[data-col="${maand}"]`)
         .forEach((el) => el.classList.toggle('ingeklapt', !nuDicht));
+    });
+  });
+
+  // --- Hele maand in één keer invullen ------------------------------------
+  // Per maand één getal per groepsblok (1a t/m 1c, 2a t/m 8b). Cellen die al
+  // een waarde hebben blijven staan, tenzij je expliciet kiest ze te
+  // overschrijven.
+  const blokken = groepBlokken(groepen);
+
+  function zetCel(groepId, maand, dagenNum) {
+    kaart.set(`${groepId}:${maand}`, dagenNum);
+    clearTimeout(timers.get(`${groepId}:${maand}`)); // geen late losse save eroverheen
+    const input = root.querySelector(
+      `.dagen-input[data-groep="${groepId}"][data-maand="${maand}"]`
+    );
+    if (input) input.value = String(dagenNum);
+    const bedragEl = root.querySelector(`.bedrag[data-groep="${groepId}"][data-maand="${maand}"]`);
+    if (bedragEl) bedragEl.textContent = euro.format(dagenNum * dagprijs);
+  }
+
+  function openVulModal(maand) {
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    overlay.innerHTML = `
+      <div class="modal-card vul-card">
+        <div class="modal-kop">
+          <h2>TSO-dagen · ${MAANDEN[maand - 1]}</h2>
+          <button type="button" class="modal-x" aria-label="Sluiten">✕</button>
+        </div>
+        <p class="muted" style="margin-top:0">Vul per blok het aantal TSO-dagen in; leeg laten slaat dat blok over. Wat al ingevuld is, blijft staan — een uitzondering pas je daarna gewoon in de tabel aan.</p>
+        <form id="vul-form">
+          ${blokken
+            .map((b) => {
+              const leeg = b.groepen.filter((g) => !kaart.has(`${g.id}:${maand}`)).length;
+              const gevuld = b.groepen.length - leeg;
+              return `
+              <div class="vul-rij">
+                <label for="vul-${b.sleutel}">
+                  <span class="vul-label">${escapeHtml(b.label)}</span>
+                  <span class="vul-sub muted">${escapeHtml(b.namen)} · ${
+                gevuld ? `${leeg} leeg, ${gevuld} al ingevuld` : 'nog niets ingevuld'
+              }</span>
+                </label>
+                <input type="number" min="0" step="1" inputmode="numeric"
+                       id="vul-${b.sleutel}" data-blok="${b.sleutel}" placeholder="—" />
+              </div>`;
+            })
+            .join('')}
+          <label class="vul-overschrijf">
+            <input type="checkbox" id="vul-overschrijf" />
+            Ook cellen die al een waarde hebben overschrijven
+          </label>
+          <p id="vul-msg" class="msg"></p>
+          <div class="modal-acties">
+            <button type="submit" class="btn btn-primary">Invullen</button>
+            <button type="button" class="btn btn-ghost" id="vul-annuleer">Annuleren</button>
+          </div>
+        </form>
+      </div>`;
+    document.body.appendChild(overlay);
+
+    const sluit = () => overlay.remove();
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) sluit();
+    });
+    overlay.querySelector('.modal-x').addEventListener('click', sluit);
+    overlay.querySelector('#vul-annuleer').addEventListener('click', sluit);
+    overlay.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') sluit();
+    });
+
+    const msg = overlay.querySelector('#vul-msg');
+    overlay.querySelector('#vul-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const overschrijf = overlay.querySelector('#vul-overschrijf').checked;
+      const teSchrijven = [];
+      let behouden = 0;
+
+      for (const b of blokken) {
+        const veld = overlay.querySelector(`input[data-blok="${b.sleutel}"]`);
+        const ruw = veld.value.trim();
+        if (ruw === '') continue;
+        const dagenNum = Math.max(0, Math.floor(Number(ruw) || 0));
+        for (const g of b.groepen) {
+          const heeftWaarde = kaart.has(`${g.id}:${maand}`);
+          if (heeftWaarde && !overschrijf) {
+            behouden++;
+            continue;
+          }
+          if (kaart.get(`${g.id}:${maand}`) === dagenNum) continue; // al goed
+          teSchrijven.push({ groep_id: g.id, maand, dagen: dagenNum });
+        }
+      }
+
+      if (!teSchrijven.length) {
+        msg.className = 'msg info';
+        msg.textContent = behouden
+          ? `Niets gewijzigd — alle ${behouden} cel(len) hadden al een waarde.`
+          : 'Vul minstens één blok in.';
+        return;
+      }
+
+      const knop = overlay.querySelector('button[type="submit"]');
+      knop.disabled = true;
+      knop.textContent = 'Bezig…';
+      try {
+        await upsertTsoDagenBulk(teSchrijven);
+      } catch (err) {
+        console.error(err);
+        msg.className = 'msg error';
+        msg.textContent = 'Opslaan mislukt — probeer het opnieuw.';
+        knop.disabled = false;
+        knop.textContent = 'Invullen';
+        return;
+      }
+
+      for (const r of teSchrijven) zetCel(r.groep_id, maand, r.dagen);
+      herbereken();
+      sluit();
+      meldOpgeslagen(
+        `${MAANDEN[maand - 1]}: ${teSchrijven.length} groep(en) ingevuld${
+          behouden ? `, ${behouden} behouden` : ''
+        } ✓`
+      );
+    });
+
+    overlay.querySelector('#vul-form input[type="number"]')?.focus();
+  }
+
+  root.querySelectorAll('.maand-vul').forEach((knop) => {
+    knop.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openVulModal(Number(knop.dataset.vul));
     });
   });
 

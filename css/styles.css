@@ -412,6 +412,65 @@ body {
 .cel.ingeklapt .cel-inhoud { display: none; }
 .maand.ingeklapt .maand-kop { justify-content: center; width: 100%; }
 
+/* Knopje in de maandkop: hele maand in één keer invullen */
+.maand-inhoud {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.maand-vul {
+  border: 1px solid var(--rand);
+  background: var(--wit);
+  color: var(--tekst-zacht);
+  cursor: pointer;
+  width: 20px;
+  height: 20px;
+  line-height: 1;
+  padding: 0;
+  border-radius: 6px;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+.maand-vul:hover { color: var(--paars); border-color: var(--paars); background: #f7f5ff; }
+.maand.ingeklapt .maand-vul { display: none; }
+.maand.ingeklapt .maand-inhoud { justify-content: center; }
+
+/* Popup "hele maand invullen" */
+.vul-card { max-width: 480px; }
+.vul-rij {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--rand);
+}
+.vul-rij label { display: flex; flex-direction: column; gap: 2px; cursor: pointer; }
+.vul-label { font-weight: 700; }
+.vul-sub { font-size: 12px; }
+.vul-rij input {
+  width: 64px;
+  padding: 5px 8px;
+  border: 1px solid var(--rand);
+  border-radius: 6px;
+  text-align: right;
+  font-size: 14px;
+  font-family: inherit;
+  flex-shrink: 0;
+}
+.vul-rij input:focus { outline: 2px solid var(--paars-licht); border-color: var(--paars); }
+.vul-overschrijf {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 14px 0 4px;
+  font-size: 13px;
+  color: var(--tekst-zacht);
+  cursor: pointer;
+}
+.modal-acties { display: flex; gap: 8px; margin-top: 12px; }
+
 /* Kop met drie-puntjes-menu */
 .hoek-inhoud {
   display: flex;

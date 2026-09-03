@@ -138,6 +138,16 @@ export async function upsertTsoDagen(groep_id, maand, dagen) {
   if (error) throw error;
 }
 
+// Slaat meerdere groep/maand-combinaties in één keer op.
+// rijen: [{ groep_id, maand, dagen }, …]
+export async function upsertTsoDagenBulk(rijen) {
+  if (!rijen.length) return;
+  const { error } = await supabase
+    .from('tso_dagen')
+    .upsert(rijen, { onConflict: 'groep_id,maand' });
+  if (error) throw error;
+}
+
 // --- Leerlingen (naam versleuteld) ----------------------------------------
 
 // groep mag een id (string) of een lijst id's (array) zijn, of leeg (alles).
