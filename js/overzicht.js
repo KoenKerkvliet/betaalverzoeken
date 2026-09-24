@@ -33,7 +33,7 @@ function escapeHtml(s) {
 // Deelt de groepen op in blokken die in de praktijk hetzelfde aantal TSO-dagen
 // hebben: jaargroep 1 apart, jaargroep 2 t/m 8 samen. Groepen zonder cijfer in
 // de naam vormen een eigen blok, zodat ze nooit stilzwijgend meegevuld worden.
-// Wordt gebruikt door de "hele maand invullen"-popup.
+// Wordt gebruikt door de "hele maand invullen"-popup en de verzoek-aantallen.
 function groepBlokken(groepen) {
   const blokken = new Map();
   for (const g of groepen) {
@@ -52,6 +52,18 @@ function groepBlokken(groepen) {
     // Bij een lang blok is de opsomming ruis; dan volstaat het aantal.
     namen: leden.length <= 6 ? leden.map((g) => g.naam).join(', ') : `${leden.length} groepen`,
   }));
+}
+
+// Krijgt deze leerling in maand M een betaalverzoek? Zelfde uitsluitingen als
+// het Deelnemers TSO-rapport: leergeld, nog niet ingestroomd, regeling en
+// uitgesloten maanden. De maandsleutels van regelingen zijn niet versleuteld,
+// dus hiervoor hoeft niets ontsleuteld te worden.
+function krijgtVerzoek(l, M) {
+  if (l.leergeld) return false;
+  if (l.instroom_maand && M < l.instroom_maand) return false;
+  if (l.regelingen && Object.prototype.hasOwnProperty.call(l.regelingen, String(M))) return false;
+  if ((l.uitgesloten_maanden || []).includes(M)) return false;
+  return true;
 }
 
 // Eén regel in het uitklap-popupje van "Overgemaakt".
@@ -190,11 +202,22 @@ export async function renderOverzicht(root) {
     return t;
   }
 
+  const leerlingRijen = await getLeerlingen(groepen.map((g) => g.id));
+
+  // Aantal betaalverzoeken per groep per maand ("groepId:maand" -> aantal).
+  const verzoekTelling = new Map();
+  for (const l of leerlingRijen) {
+    for (let m = 1; m <= MAANDEN.length; m++) {
+      if (!krijgtVerzoek(l, m)) continue;
+      const sleutel = `${l.groep_id}:${m}`;
+      verzoekTelling.set(sleutel, (verzoekTelling.get(sleutel) || 0) + 1);
+    }
+  }
+
   // Alle leerlingen van dit schooljaar ontsleutelen (voor zoeken/koppelen).
   const alleLeerlingen = [];
   if (isUnlocked()) {
-    const rows = await getLeerlingen(groepen.map((g) => g.id));
-    for (const r of rows) {
+    for (const r of leerlingRijen) {
       let v = '⚠︎ onleesbaar';
       let a = '';
       try {
@@ -250,6 +273,42 @@ export async function renderOverzicht(root) {
     );
 
   const ingeklapt = leesIngeklapt();
+  const blokken = groepBlokken(groepen);
+
+  // Betaalverzoeken per blok in een maand. Een groep met expliciet 0 TSO-dagen
+  // krijgt die maand geen verzoek; een lege cel telt wel mee (nog niet ingevuld).
+  function verzoekenVoor(blok, maand) {
+    let totaal = 0;
+    const delen = [];
+    for (const g of blok.groepen) {
+      if (kaart.get(`${g.id}:${maand}`) === 0) {
+        delen.push(`${g.naam}: geen TSO`);
+        continue;
+      }
+      const n = verzoekTelling.get(`${g.id}:${maand}`) || 0;
+      totaal += n;
+      delen.push(`${g.naam}: ${n}`);
+    }
+    return { totaal, titel: delen.join(' · ') };
+  }
+
+  const verzoekRijen = blokken
+    .map(
+      (b) => `
+      <tr class="verzoek-rij">
+        <th class="groep-cel verzoek-label" scope="row"
+            title="Leerlingen die deze maand een betaalverzoek moeten krijgen (zonder leergeld, regelingen, uitgesloten en nog niet ingestroomd)">Verzoeken ${escapeHtml(b.label)}</th>
+        ${MAANDEN.map((_, i) => {
+          const maand = i + 1;
+          const dicht = ingeklapt.has(maand) ? ' ingeklapt' : '';
+          const { totaal, titel } = verzoekenVoor(b, maand);
+          return `<td class="cel verzoek-cel${dicht}" data-col="${maand}" data-blok="${b.sleutel}"
+                      title="${escapeHtml(titel)}"><span class="cel-inhoud">${totaal}</span></td>`;
+        }).join('')}
+        <td class="totaal-cel"></td>
+      </tr>`
+    )
+    .join('');
 
   // Kolomkoppen — klikbaar om in/uit te klappen
   const maandKoppen = MAANDEN.map((m, i) => {
@@ -314,6 +373,7 @@ export async function renderOverzicht(root) {
     <div class="tabel-wrap">
       <table class="overzicht-tabel">
         <thead>
+          ${verzoekRijen}
           <tr>
             <th class="hoek">Groep</th>
             ${maandKoppen}
@@ -418,6 +478,17 @@ export async function renderOverzicht(root) {
       if (cel) cel.textContent = euro.format(groepTotaal);
       eindtotaal += groepTotaal;
     }
+
+    // Verzoek-aantallen volgen de TSO-dagen (0 dagen = geen verzoek).
+    for (const b of blokken) {
+      for (let m = 1; m <= MAANDEN.length; m++) {
+        const cel = root.querySelector(`.verzoek-cel[data-blok="${b.sleutel}"][data-col="${m}"]`);
+        if (!cel) continue;
+        const { totaal, titel } = verzoekenVoor(b, m);
+        cel.title = titel;
+        cel.querySelector('.cel-inhoud').textContent = totaal;
+      }
+    }
   }
   herbereken();
 
@@ -515,7 +586,6 @@ export async function renderOverzicht(root) {
   // Per maand één getal per groepsblok (1a t/m 1c, 2a t/m 8b). Cellen die al
   // een waarde hebben blijven staan, tenzij je expliciet kiest ze te
   // overschrijven.
-  const blokken = groepBlokken(groepen);
 
   function zetCel(groepId, maand, dagenNum) {
     kaart.set(`${groepId}:${maand}`, dagenNum);
