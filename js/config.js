@@ -24,7 +24,7 @@ export const MAANDEN = [
 
 // Maandnamen zoals ze in de betaalverzoek-tekst aan ouders staan.
 export const MAANDEN_TEKST = [
-  'augustus/september',
+  'augustus / september',
   'oktober',
   'november',
   'december',
@@ -33,7 +33,7 @@ export const MAANDEN_TEKST = [
   'maart',
   'april',
   'mei',
-  'juni/juli',
+  'juni / juli',
 ];
 
 // Korte afkortingen, getoond wanneer een kolom is ingeklapt.

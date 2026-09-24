@@ -72,11 +72,32 @@ const ENVELOP_SVG = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none"
   stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
   <rect x="2" y="4" width="20" height="16" rx="2" /><path d="m22 7-10 6L2 7" /></svg>`;
 
-// Vult het sjabloon van de betaalverzoek-tekst in. Plaatshouders: {maand},
-// {dagen}, {bedrag}. Harde spaties uit de euro-notatie worden gewone spaties,
-// zodat de tekst overal netjes plakt.
-function vulBetaalverzoekTekst(sjabloon, { maand, dagen, bedrag }) {
+// Kalenderjaar van een schoolmaand: aug t/m dec (1..4) vallen in het beginjaar
+// van het schooljaar ("2026-2027" → 2026), januari t/m juli in het jaar erna.
+function kalenderjaar(schooljaarNaam, maand) {
+  const start = Number((String(schooljaarNaam || '').match(/\d{4}/) || [])[0]);
+  if (!start) return new Date().getFullYear();
+  return maand <= 4 ? start : start + 1;
+}
+
+// "groep 1" of "groep 2-8", afgeleid van de jaargroepen in het blok.
+function groepAanduiding(blok) {
+  const jaren = blok.groepen
+    .map((g) => Number((String(g.naam).match(/\d+/) || [])[0]))
+    .filter(Boolean);
+  if (!jaren.length) return `groep ${blok.label}`;
+  const min = Math.min(...jaren);
+  const max = Math.max(...jaren);
+  return min === max ? `groep ${min}` : `groep ${min}-${max}`;
+}
+
+// Vult het sjabloon van de betaalverzoek-tekst in. Plaatshouders: {jaar},
+// {maand}, {groep}, {dagen}, {bedrag}. Harde spaties uit de euro-notatie
+// worden gewone spaties, zodat de tekst overal netjes plakt.
+function vulBetaalverzoekTekst(sjabloon, { jaar, maand, groep, dagen, bedrag }) {
   return sjabloon
+    .replaceAll('{jaar}', String(jaar))
+    .replaceAll('{groep}', groep)
     .replaceAll('{maand}', MAANDEN_TEKST[maand - 1])
     .replaceAll('{dagen}', String(dagen))
     .replaceAll('{bedrag}', euro.format(bedrag).replace(/[\u00a0\u202f]/g, ' '));
@@ -574,7 +595,9 @@ export async function renderOverzicht(root) {
 
       const dagenNum = verschillend[0];
       const tekst = vulBetaalverzoekTekst(betaalverzoekTekst, {
+        jaar: kalenderjaar(schooljaar.naam, maand),
         maand,
+        groep: groepAanduiding(blok),
         dagen: dagenNum,
         bedrag: dagenNum * dagprijs,
       });

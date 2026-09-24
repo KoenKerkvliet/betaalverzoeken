@@ -47,7 +47,7 @@ export async function renderInstellingen(root) {
 
     <section class="kaart">
       <h2>Betaalverzoek-tekst</h2>
-      <p class="muted">Deze tekst kopieer je op het Overzicht met de envelop boven een maand. Plaatshouders worden automatisch ingevuld: <code>{maand}</code> (bijv. augustus/september), <code>{dagen}</code> (aantal TSO-dagen) en <code>{bedrag}</code> (bijv. € 28,00).</p>
+      <p class="muted">Deze tekst kopieer je op het Overzicht met de envelop boven een maand. Plaatshouders worden automatisch ingevuld: <code>{jaar}</code> (bijv. 2026), <code>{maand}</code> (bijv. augustus / september), <code>{groep}</code> (groep 1 of groep 2-8), <code>{dagen}</code> (aantal TSO-dagen) en <code>{bedrag}</code> (bijv. € 28,00).</p>
       <form id="tekst-form">
         <textarea id="betaalverzoek-tekst" class="tekst-sjabloon" rows="10">${escapeAttr(
           betaalverzoekTekst || ''
