@@ -60,6 +60,7 @@ create table if not exists public.leerlingen (
   leergeld        boolean not null default false, -- vergoed door Stichting Leergeld
   leergeld_bedrag numeric(8,2),                    -- handmatig in te vullen bedrag
   instroom_maand  smallint check (instroom_maand between 1 and 10), -- meedoen vanaf
+  uitstroom_maand smallint check (uitstroom_maand between 1 and 10), -- niet meer op school vanaf
   uitgesloten_maanden smallint[] not null default '{}',            -- maanden die niet meetellen
   regelingen      jsonb not null default '{}'::jsonb,              -- maand -> {ct,iv} (client-side versleutelde opmerking)
   created_at timestamptz not null default now()
@@ -235,6 +236,7 @@ as $$
     and g.schooljaar_id = p_schooljaar_id
     and l.leergeld = false
     and (l.instroom_maand is null or b.maand >= l.instroom_maand)
+    and (l.uitstroom_maand is null or b.maand < l.uitstroom_maand)
     and not (b.maand = any(coalesce(l.uitgesloten_maanden, '{}'::smallint[])))
     and not (coalesce(l.regelingen, '{}'::jsonb) ? b.maand::text)
   group by b.leerling_id, g.naam, g.volgorde;

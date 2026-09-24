@@ -64,6 +64,7 @@ function uitsluitReden(l, M) {
   const redenen = [];
   if (l.leergeld) redenen.push('Leergeld');
   if (l.instroom_maand && M < l.instroom_maand) redenen.push('Nog niet ingestroomd');
+  if (l.uitstroom_maand && M >= l.uitstroom_maand) redenen.push('Uitgestroomd');
   const reg = l.regelingenPlain || {};
   if (Object.prototype.hasOwnProperty.call(reg, String(M))) {
     const note = (reg[String(M)] || '').trim();
@@ -185,6 +186,9 @@ async function genereerPdf(sj, gekozenGroepen, maand, alleGroepen) {
   const uitgesloten = [];
   const actieNodig = [];
   for (const r of rows) {
+    // Alleen in de maand van uitstroom melden; daarna staat het kind ook niet
+    // meer in de Isy-groep en is de regel ruis.
+    if (r.uitstroom_maand && maand > r.uitstroom_maand) continue;
     r.regelingenPlain = await decryptRegelingen(r.regelingen);
     const redenenNu = uitsluitReden(r, maand);
     const redenenVorig = maand > 1 ? uitsluitReden(r, maand - 1) : [];
@@ -358,6 +362,7 @@ export async function backupExcel() {
         leergeld: r.leergeld,
         leergeld_bedrag: r.leergeld_bedrag,
         instroom: r.instroom_maand,
+        uitstroom: r.uitstroom_maand,
         uitgesloten: r.uitgesloten_maanden || [],
         regelingen: await decryptRegelingen(r.regelingen),
       };
@@ -400,6 +405,7 @@ export async function backupExcel() {
       Leergeld: l.leergeld ? 'ja' : '',
       'Leergeld bedrag': l.leergeld_bedrag != null ? Number(l.leergeld_bedrag) : '',
       'Instroom vanaf': l.instroom ? MAANDEN[l.instroom - 1] : '',
+      'Uitgestroomd vanaf': l.uitstroom ? MAANDEN[l.uitstroom - 1] : '',
       'Uitgesloten maanden': l.uitgesloten.map((m) => MAANDEN[m - 1]).join(', '),
       Regelingen: Object.entries(l.regelingen)
         .map(([m, t]) => `${MAANDEN[m - 1]}${t ? ': ' + t : ''}`)

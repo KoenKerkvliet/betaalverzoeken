@@ -41,16 +41,25 @@ function escapeAttr(s) {
 }
 
 // Status van een cel voor een leerling/maand: arceerklasse + tooltip.
-// Volgorde: vóór instroom (grijs) > regeling (rood) > uitgesloten (blauw).
+// Volgorde: vóór instroom / na uitstroom (grijs) > regeling (rood) > uitgesloten (blauw).
 // Gebruikt regelingenPlain (client-side ontsleutelde opmerkingen).
 function celStatus(l, maand) {
   if (l.instroom_maand && maand < l.instroom_maand) return { klasse: 'voor-instroom', title: '' };
+  if (l.uitstroom_maand && maand >= l.uitstroom_maand) {
+    return { klasse: 'na-uitstroom', title: 'Uitgestroomd' };
+  }
   const reg = l.regelingenPlain || {};
   if (Object.prototype.hasOwnProperty.call(reg, String(maand))) {
     return { klasse: 'regeling', title: reg[String(maand)] || '' };
   }
   if ((l.uitgesloten_maanden || []).includes(maand)) return { klasse: 'uitgesloten', title: '' };
   return { klasse: '', title: '' };
+}
+
+function uitstroomBadge(l) {
+  return l.uitstroom_maand
+    ? ` <span class="uitstroom-badge" title="Uitgestroomd vanaf ${MAANDEN[l.uitstroom_maand - 1]}">Uitgestroomd</span>`
+    : '';
 }
 
 export async function renderGroep(root, id) {
@@ -80,6 +89,7 @@ export async function renderGroep(root, id) {
     const extra = {
       leergeld: r.leergeld,
       instroom_maand: r.instroom_maand,
+      uitstroom_maand: r.uitstroom_maand,
       uitgesloten_maanden: r.uitgesloten_maanden || [],
       regelingen: r.regelingen || {},
     };
@@ -165,13 +175,13 @@ export async function renderGroep(root, id) {
   const leerlingRijen = leerlingen
     .map(
       (l) => `
-      <tr class="${l.leergeld ? 'leergeld-rij' : ''}">
+      <tr class="${l.leergeld ? 'leergeld-rij' : ''}" data-rij="${l.id}">
         <th class="groep-cel" scope="row">
           <div class="leerling-cel">
             <button type="button" class="leerling-knop" data-leerling="${l.id}">
               <span class="ll-naam">${pseudoniem(l.voornaam, l.achternaam)}</span>${
         l.leergeld ? ' <span class="leergeld-badge">Leergeld</span>' : ''
-      }
+      }${uitstroomBadge(l)}
             </button>
             <button class="mini-x" data-del="${l.id}" title="Leerling verwijderen">✕</button>
           </div>
@@ -190,7 +200,7 @@ export async function renderGroep(root, id) {
       </div>
       <p class="muted">${leerlingen.length} leerling(en) · schooljaar ${schooljaar.naam} ·
         <span class="legenda"><span class="stip betaald"></span> betaald</span>
-        <span class="legenda"><span class="swatch voor-instroom"></span> vóór instroom</span>
+        <span class="legenda"><span class="swatch voor-instroom"></span> vóór instroom / uitgestroomd</span>
         <span class="legenda"><span class="swatch uitgesloten"></span> uitgesloten</span>
         <span class="legenda"><span class="swatch regeling"></span> regeling</span></p>
     </header>
@@ -302,7 +312,7 @@ export async function renderGroep(root, id) {
     for (let m = 1; m <= MAANDEN.length; m++) {
       const td = root.querySelector(`td[data-leerling="${l.id}"][data-maand="${m}"]`);
       if (!td) continue;
-      td.classList.remove('voor-instroom', 'uitgesloten', 'regeling');
+      td.classList.remove('voor-instroom', 'na-uitstroom', 'uitgesloten', 'regeling');
       td.removeAttribute('title');
       const st = celStatus(l, m);
       if (st.klasse) td.classList.add(st.klasse);
@@ -319,6 +329,17 @@ export async function renderGroep(root, id) {
         (m, i) =>
           `<label class="menu-optie"><input type="radio" name="instroom-${l.id}" value="${i + 1}"${
             l.instroom_maand === i + 1 ? ' checked' : ''
+          }> ${m}</label>`
+      ),
+    ].join('');
+    const uitstroomOpties = [
+      `<label class="menu-optie"><input type="radio" name="uitstroom-${l.id}" value=""${
+        !l.uitstroom_maand ? ' checked' : ''
+      }> Zit nog op school</label>`,
+      ...MAANDEN.map(
+        (m, i) =>
+          `<label class="menu-optie"><input type="radio" name="uitstroom-${l.id}" value="${i + 1}"${
+            l.uitstroom_maand === i + 1 ? ' checked' : ''
           }> ${m}</label>`
       ),
     ].join('');
@@ -372,6 +393,13 @@ export async function renderGroep(root, id) {
       <div class="menu-sectie">
         <button type="button" class="menu-kop" data-sectie="instroom">Instroom vanaf <span>▾</span></button>
         <div class="menu-inhoud" data-inhoud="instroom" hidden>${instroomOpties}</div>
+      </div>
+      <div class="menu-sectie">
+        <button type="button" class="menu-kop" data-sectie="uitstroom">Uitgestroomd vanaf <span>▾</span></button>
+        <div class="menu-inhoud" data-inhoud="uitstroom" hidden>
+          <p class="menu-hint">Eerste maand waarin de leerling niet meer op school zit.</p>
+          ${uitstroomOpties}
+        </div>
       </div>
       <div class="menu-sectie">
         <button type="button" class="menu-kop" data-sectie="uitsluiten">Maanden uitsluiten <span>▾</span></button>
@@ -436,6 +464,22 @@ export async function renderGroep(root, id) {
         pasArceringToe(l);
         try {
           await updateLeerling(l.id, { instroom_maand: l.instroom_maand });
+        } catch (e) {
+          console.error(e);
+        }
+      });
+    });
+
+    // Uitstroom (radio)
+    menuEl.querySelectorAll(`input[name="uitstroom-${l.id}"]`).forEach((radio) => {
+      radio.addEventListener('change', async () => {
+        l.uitstroom_maand = radio.value === '' ? null : Number(radio.value);
+        pasArceringToe(l);
+        const rij = root.querySelector(`tr[data-rij="${l.id}"] .leerling-knop`);
+        rij?.querySelector('.uitstroom-badge')?.remove();
+        rij?.insertAdjacentHTML('beforeend', uitstroomBadge(l));
+        try {
+          await updateLeerling(l.id, { uitstroom_maand: l.uitstroom_maand });
         } catch (e) {
           console.error(e);
         }

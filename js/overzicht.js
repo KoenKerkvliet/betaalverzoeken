@@ -55,12 +55,13 @@ function groepBlokken(groepen) {
 }
 
 // Krijgt deze leerling in maand M een betaalverzoek? Zelfde uitsluitingen als
-// het Deelnemers TSO-rapport: leergeld, nog niet ingestroomd, regeling en
-// uitgesloten maanden. De maandsleutels van regelingen zijn niet versleuteld,
-// dus hiervoor hoeft niets ontsleuteld te worden.
+// het Deelnemers TSO-rapport: leergeld, nog niet ingestroomd, uitgestroomd,
+// regeling en uitgesloten maanden. De maandsleutels van regelingen zijn niet
+// versleuteld, dus hiervoor hoeft niets ontsleuteld te worden.
 function krijgtVerzoek(l, M) {
   if (l.leergeld) return false;
   if (l.instroom_maand && M < l.instroom_maand) return false;
+  if (l.uitstroom_maand && M >= l.uitstroom_maand) return false;
   if (l.regelingen && Object.prototype.hasOwnProperty.call(l.regelingen, String(M))) return false;
   if ((l.uitgesloten_maanden || []).includes(M)) return false;
   return true;
@@ -297,7 +298,7 @@ export async function renderOverzicht(root) {
       (b) => `
       <tr class="verzoek-rij">
         <th class="groep-cel verzoek-label" scope="row"
-            title="Leerlingen die deze maand een betaalverzoek moeten krijgen (zonder leergeld, regelingen, uitgesloten en nog niet ingestroomd)">Verzoeken ${escapeHtml(b.label)}</th>
+            title="Leerlingen die deze maand een betaalverzoek moeten krijgen (zonder leergeld, regelingen, uitgesloten, nog niet ingestroomd en uitgestroomd)">Verzoeken ${escapeHtml(b.label)}</th>
         ${MAANDEN.map((_, i) => {
           const maand = i + 1;
           const dicht = ingeklapt.has(maand) ? ' ingeklapt' : '';

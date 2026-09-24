@@ -11,6 +11,9 @@ import {
   getGroepen,
   getLeerlingen,
   insertLeerlingen,
+  deleteLeerling,
+  updateLeerling,
+  getBetalingen,
   upsertBetalingen,
   getBetalingenVoorMaanden,
   getTsoDagen,
@@ -19,6 +22,7 @@ import { encryptText, decryptText, isUnlocked } from './crypto.js';
 import { getHuidigSchooljaar } from './state.js';
 import { euro } from './supabaseClient.js';
 import { MAANDEN } from './config.js';
+import { huidigeSchoolMaand } from './util.js';
 
 // Leest en parset een EDEX-XML-string.
 export function parseEdex(xmlTekst) {
@@ -235,6 +239,7 @@ async function slaImportOp(parse, btn, status, onKlaar) {
       try {
         const { v, a } = JSON.parse(await decryptText(b.enc_naam, b.iv));
         bestaandSet.add(sleutel(b.groep_id, v, a));
+        b.naam = { v, a };
       } catch {
         /* onleesbaar record — overslaan */
       }
@@ -269,6 +274,15 @@ async function slaImportOp(parse, btn, status, onKlaar) {
     status.textContent = delen.join(' · ');
     btn.textContent = 'Klaar';
 
+    // 5. Leerlingen die in de app staan maar niet (meer) in dit EDEX-bestand:
+    //    vertrokken of van groep gewisseld. De import haalt zelf nooit iets weg,
+    //    dus de gebruiker kiest per leerling wat er moet gebeuren.
+    const ontbrekend = await zoekOntbrekend(parse, schooljaar, naamNaarId, bestaand);
+    if (ontbrekend.length) {
+      toonOntbrekend(status, ontbrekend, () => onKlaar?.(schooljaar.id));
+      return;
+    }
+
     if (typeof onKlaar === 'function') await onKlaar(schooljaar.id);
   } catch (err) {
     console.error(err);
@@ -277,6 +291,131 @@ async function slaImportOp(parse, btn, status, onKlaar) {
     btn.textContent = 'Versleuteld opslaan in portaal';
     btn.disabled = false;
   }
+}
+
+// Leerlingen van dit schooljaar die niet in het EDEX-bestand voorkomen. Match op
+// groep + volledige naam, of losser op groep + voornaam + achternaam-kern (zoals
+// bij de betaal-import), zodat tussenvoegsels en accenten geen valse meldingen
+// geven. Leerlingen die al als uitgestroomd gemarkeerd zijn, tellen niet mee.
+async function zoekOntbrekend(parse, schooljaar, naamNaarId, bestaand) {
+  const groepen = await getGroepen(schooljaar.id);
+  const groepNaam = new Map(groepen.map((g) => [g.id, g.naam]));
+  const groepVolgorde = new Map(groepen.map((g) => [g.id, g.volgorde]));
+
+  const inEdex = new Set();
+  const edexGroepVanNaam = new Map(); // genormaliseerde naam -> groep in EDEX
+  for (const l of parse.leerlingen) {
+    const naam = `${l.voornaam} ${l.achternaam}`;
+    edexGroepVanNaam.set(normaliseer(naam), l.groep);
+    const gid = naamNaarId.get(l.groep.toLowerCase());
+    if (!gid) continue;
+    inEdex.add(`${gid}|${normaliseer(naam)}`);
+    inEdex.add(losseSleutel(gid, naam));
+  }
+
+  const ontbrekend = bestaand.filter((b) => {
+    if (!groepNaam.has(b.groep_id) || !b.naam || b.uitstroom_maand) return false;
+    const naam = `${b.naam.v} ${b.naam.a}`;
+    return (
+      !inEdex.has(`${b.groep_id}|${normaliseer(naam)}`) &&
+      !inEdex.has(losseSleutel(b.groep_id, naam))
+    );
+  });
+  if (!ontbrekend.length) return [];
+
+  const aantalBetalingen = new Map();
+  for (const bet of await getBetalingen(ontbrekend.map((b) => b.id))) {
+    aantalBetalingen.set(bet.leerling_id, (aantalBetalingen.get(bet.leerling_id) || 0) + 1);
+  }
+
+  return ontbrekend
+    .map((b) => {
+      const naam = `${b.naam.v}${b.naam.a ? ' ' + b.naam.a : ''}`;
+      const groep = groepNaam.get(b.groep_id);
+      const nuIn = edexGroepVanNaam.get(normaliseer(naam));
+      return {
+        id: b.id,
+        naam,
+        groep,
+        volgorde: groepVolgorde.get(b.groep_id) ?? 99,
+        betalingen: aantalBetalingen.get(b.id) || 0,
+        hint: nuIn && nuIn.toLowerCase() !== groep.toLowerCase() ? nuIn : null,
+      };
+    })
+    .sort((x, y) => x.volgorde - y.volgorde || x.naam.localeCompare(y.naam, 'nl'));
+}
+
+function toonOntbrekend(status, lijst, naarOverzicht) {
+  const standaardMaand = huidigeSchoolMaand();
+  const maandOpties = MAANDEN.map(
+    (m, i) => `<option value="${i + 1}"${i + 1 === standaardMaand ? ' selected' : ''}>${m}</option>`
+  ).join('');
+
+  const rijen = lijst
+    .map(
+      (l) => `
+      <tr data-id="${l.id}">
+        <td>${escapeHtml(l.naam)}${
+          l.hint
+            ? `<div class="ontbrekend-hint">Staat in EDEX nu in groep ${escapeHtml(l.hint)}</div>`
+            : ''
+        }</td>
+        <td>${escapeHtml(l.groep)}</td>
+        <td>${l.betalingen}</td>
+        <td><select class="ontbrekend-maand">${maandOpties}</select></td>
+        <td class="ontbrekend-acties">
+          <button type="button" class="btn btn-primary" data-actie="uitstroom">Uitgestroomd</button>
+          <button type="button" class="btn btn-ghost btn-danger" data-actie="verwijder">Verwijderen</button>
+        </td>
+      </tr>`
+    )
+    .join('');
+
+  const blok = document.createElement('div');
+  blok.className = 'ontbrekend-blok';
+  blok.innerHTML = `
+    <h3>Niet meer in EDEX · ${lijst.length}</h3>
+    <p class="muted">Deze leerlingen staan in de app, maar niet in dit EDEX-bestand. Waarschijnlijk zijn ze vertrokken of van groep gewisseld. Zolang je niets kiest, tellen ze gewoon mee in de aantallen en rapporten.</p>
+    <p class="muted"><strong>Uitgestroomd</strong> bewaart de leerling en de betalingen; vanaf de gekozen maand telt hij nergens meer mee. <strong>Verwijderen</strong> is voor een dubbele of foutieve leerling; betalingen en notities verdwijnen dan ook.</p>
+    <table class="import-tabel ontbrekend-tabel">
+      <thead><tr><th>Naam</th><th>Groep</th><th>Betalingen</th><th>Uitgestroomd vanaf</th><th></th></tr></thead>
+      <tbody>${rijen}</tbody>
+    </table>
+    <button type="button" class="btn btn-primary" id="ontbrekend-klaar">Klaar, naar overzicht</button>`;
+  status.insertAdjacentElement('afterend', blok);
+
+  blok.querySelector('#ontbrekend-klaar').addEventListener('click', naarOverzicht);
+
+  blok.querySelector('tbody').addEventListener('click', async (e) => {
+    const knop = e.target.closest('[data-actie]');
+    if (!knop) return;
+    const rij = knop.closest('tr');
+    const l = lijst.find((x) => x.id === rij.dataset.id);
+    const acties = rij.querySelector('.ontbrekend-acties');
+    const select = rij.querySelector('.ontbrekend-maand');
+
+    try {
+      if (knop.dataset.actie === 'uitstroom') {
+        const maand = Number(select.value);
+        await updateLeerling(l.id, { uitstroom_maand: maand });
+        acties.innerHTML = `<span class="ontbrekend-klaar">✓ Uitgestroomd vanaf ${MAANDEN[maand - 1]}</span>`;
+      } else {
+        const waarschuwing = l.betalingen
+          ? `\n\nLet op: ${l.betalingen} betaling(en) van deze leerling worden ook verwijderd.`
+          : '';
+        if (!window.confirm(`${l.naam} (${l.groep}) verwijderen?${waarschuwing}`)) return;
+        await deleteLeerling(l.id);
+        acties.innerHTML = '<span class="ontbrekend-klaar">✓ Verwijderd</span>';
+      }
+      select.disabled = true;
+    } catch (err) {
+      console.error(err);
+      acties.insertAdjacentHTML(
+        'beforeend',
+        '<div class="ontbrekend-hint">Opslaan mislukt, probeer het opnieuw.</div>'
+      );
+    }
+  });
 }
 
 function sleutel(groepId, voornaam, achternaam) {
