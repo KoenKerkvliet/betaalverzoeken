@@ -179,10 +179,49 @@ function notitieLeerlingenHtml(rijen) {
     .join('');
 }
 
-function leergeldRijenHtml(leerlingen, groepNaam, groepJaarTotaal) {
+// Sortering van de Leergeld-tabel: kolom 'groep' (groepsvolgorde, dan naam) of
+// 'naam', oplopend of aflopend. Keuze wordt onthouden in localStorage.
+const LEERGELD_SORTERING = 'leergeld_sortering';
+
+function leesLeergeldSortering() {
+  try {
+    const s = JSON.parse(localStorage.getItem(LEERGELD_SORTERING) || 'null');
+    if (s && ['groep', 'naam'].includes(s.kolom) && [1, -1].includes(s.richting)) return s;
+  } catch {
+    /* ongeldige waarde: standaard gebruiken */
+  }
+  return { kolom: 'groep', richting: 1 };
+}
+
+function bewaarLeergeldSortering(s) {
+  try {
+    localStorage.setItem(LEERGELD_SORTERING, JSON.stringify(s));
+  } catch {
+    /* niet kritisch */
+  }
+}
+
+function leergeldKopHtml(kolom, label, sortering) {
+  const actief = sortering.kolom === kolom;
+  const pijl = actief ? (sortering.richting === 1 ? '▲' : '▼') : '';
+  const aria = actief ? (sortering.richting === 1 ? 'ascending' : 'descending') : 'none';
+  return `<th aria-sort="${aria}"><button type="button" class="sorteer-kop${
+    actief ? ' actief' : ''
+  }" data-sorteer="${kolom}">${label}<span class="sorteer-pijl">${pijl}</span></button></th>`;
+}
+
+function leergeldRijenHtml(leerlingen, groepNaam, groepJaarTotaal, groepVolgorde, sortering) {
+  const opNaam = (x, y) =>
+    x.voornaam.localeCompare(y.voornaam, 'nl') || x.achternaam.localeCompare(y.achternaam, 'nl');
+  const opGroep = (x, y) =>
+    (groepVolgorde.get(x.groep_id) ?? 99) - (groepVolgorde.get(y.groep_id) ?? 99);
   const gekoppeld = leerlingen
     .filter((l) => l.leergeld)
-    .sort((x, y) => x.voornaam.localeCompare(y.voornaam, 'nl'));
+    .sort((x, y) =>
+      sortering.kolom === 'groep'
+        ? sortering.richting * opGroep(x, y) || opNaam(x, y)
+        : sortering.richting * opNaam(x, y)
+    );
   if (!gekoppeld.length) {
     return `<tr><td colspan="4" class="muted" style="padding:12px">Nog geen leerlingen gekoppeld. Zoek hierboven een leerling om te koppelen.</td></tr>`;
   }
@@ -248,6 +287,8 @@ export async function renderOverzicht(root) {
 
   // Jaartotaal (bedrag) per groep, gebruikt in de Leergeld-sectie.
   const groepNaam = new Map(groepen.map((g) => [g.id, g.naam]));
+  const groepVolgorde = new Map(groepen.map((g) => [g.id, g.volgorde]));
+  const leergeldSortering = leesLeergeldSortering();
   function groepJaarTotaal(gid) {
     let t = 0;
     for (let m = 1; m <= MAANDEN.length; m++) {
@@ -491,8 +532,18 @@ export async function renderOverzicht(root) {
         </div>
 
         <table class="import-tabel leergeld-tabel">
-          <thead><tr><th>Naam</th><th>Groep</th><th>Bedrag</th><th></th></tr></thead>
-          <tbody id="leergeld-body">${leergeldRijenHtml(alleLeerlingen, groepNaam, groepJaarTotaal)}</tbody>
+          <thead><tr id="leergeld-koppen">${leergeldKopHtml('naam', 'Naam', leergeldSortering)}${leergeldKopHtml(
+            'groep',
+            'Groep',
+            leergeldSortering
+          )}<th>Bedrag</th><th></th></tr></thead>
+          <tbody id="leergeld-body">${leergeldRijenHtml(
+            alleLeerlingen,
+            groepNaam,
+            groepJaarTotaal,
+            groepVolgorde,
+            leergeldSortering
+          )}</tbody>
         </table>
       </div>
     </section>
@@ -884,6 +935,33 @@ export async function renderOverzicht(root) {
   });
 
   const leergeldBody = root.querySelector('#leergeld-body');
+
+  // Sorteren op naam of groep; nogmaals klikken draait de volgorde om.
+  const leergeldKoppen = root.querySelector('#leergeld-koppen');
+  leergeldKoppen.addEventListener('click', (e) => {
+    const knop = e.target.closest('[data-sorteer]');
+    if (!knop) return;
+    const kolom = knop.dataset.sorteer;
+    if (leergeldSortering.kolom === kolom) {
+      leergeldSortering.richting *= -1;
+    } else {
+      leergeldSortering.kolom = kolom;
+      leergeldSortering.richting = 1;
+    }
+    bewaarLeergeldSortering(leergeldSortering);
+    leergeldKoppen.innerHTML =
+      leergeldKopHtml('naam', 'Naam', leergeldSortering) +
+      leergeldKopHtml('groep', 'Groep', leergeldSortering) +
+      '<th>Bedrag</th><th></th>';
+    leergeldBody.innerHTML = leergeldRijenHtml(
+      alleLeerlingen,
+      groepNaam,
+      groepJaarTotaal,
+      groepVolgorde,
+      leergeldSortering
+    );
+  });
+
   leergeldBody.addEventListener('click', async (e) => {
     const btn = e.target.closest('[data-ontkoppel]');
     if (!btn) return;

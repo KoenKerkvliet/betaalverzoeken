@@ -641,6 +641,25 @@ body {
 .zoek-leeg { padding: 10px 12px; color: var(--tekst-zacht); font-size: 13px; }
 .leergeld-tabel td:last-child, .leergeld-tabel th:last-child { width: 30px; text-align: right; }
 
+/* Klikbare kolomkoppen om te sorteren */
+.sorteer-kop {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  text-transform: inherit;
+  letter-spacing: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.sorteer-kop:hover,
+.sorteer-kop.actief { color: var(--paars); }
+.sorteer-pijl { font-size: 9px; min-width: 9px; }
+
 /* Brede secties (even breed als het overzicht erboven) */
 .kaart.breed-sectie { max-width: none; }
 
