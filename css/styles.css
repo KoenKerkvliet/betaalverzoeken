@@ -969,6 +969,19 @@ body {
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
 }
 .modal-kop { display: flex; align-items: center; justify-content: space-between; }
+
+/* Info-popup: werkwijze betaalverzoek */
+.werkwijze-card { max-width: 580px; }
+.werkwijze-kop {
+  margin: 18px 0 6px;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--paars);
+}
+.werkwijze-lijst { margin: 0; padding-left: 22px; }
+.werkwijze-lijst li { margin: 0 0 8px; padding-left: 4px; line-height: 1.5; }
+.werkwijze-lijst li::marker { color: var(--paars); font-weight: 700; }
 .modal-kop h2 { margin: 0; font-size: 18px; }
 .modal-x {
   border: none;

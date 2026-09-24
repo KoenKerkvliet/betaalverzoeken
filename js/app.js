@@ -38,6 +38,7 @@ import { renderOverzicht } from './overzicht.js';
 import { renderInstellingen } from './instellingen.js';
 import { renderGroep } from './groep.js';
 import { renderImport } from './import.js';
+import { openWerkwijzeModal } from './werkwijze.js';
 
 const content = document.getElementById('content');
 const navGroepen = document.getElementById('nav-groepen');
@@ -215,6 +216,7 @@ async function openBetalingModal() {
 }
 
 betalingBtn.addEventListener('click', openBetalingModal);
+document.getElementById('werkwijze-btn').addEventListener('click', openWerkwijzeModal);
 
 // --- Overzichten-dropdown ----------------------------------------------
 const overzichtenBtn = document.getElementById('overzichten-btn');
