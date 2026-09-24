@@ -20,6 +20,14 @@ export async function saveDagprijs(prijs) {
   if (error) throw error;
 }
 
+export async function saveBetaalverzoekTekst(tekst) {
+  const { error } = await supabase
+    .from('instellingen')
+    .update({ betaalverzoek_tekst: tekst })
+    .eq('id', 1);
+  if (error) throw error;
+}
+
 // Slaat de encryptie-metadata op (salt + controlewaarde). Nooit de sleutel zelf.
 export async function saveEncryptieSetup({ enc_salt, enc_check, enc_check_iv }) {
   const { error } = await supabase

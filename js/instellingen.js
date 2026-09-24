@@ -1,5 +1,13 @@
-import { getGroepen, saveDagprijsSchooljaar, renameGroep, deleteGroep } from './data.js';
+import {
+  getInstellingen,
+  saveBetaalverzoekTekst,
+  getGroepen,
+  saveDagprijsSchooljaar,
+  renameGroep,
+  deleteGroep,
+} from './data.js';
 import { getHuidigSchooljaar } from './state.js';
+import { escapeAttr } from './util.js';
 import { mfaIngeschakeld, startEnroll, bevestigEnroll, schakelUit } from './mfa.js';
 
 export async function renderInstellingen(root) {
@@ -14,6 +22,7 @@ export async function renderInstellingen(root) {
   }
 
   const groepen = await getGroepen(schooljaar.id);
+  const { betaalverzoek_tekst: betaalverzoekTekst } = await getInstellingen();
 
   root.innerHTML = `
     <header class="page-head">
@@ -33,6 +42,20 @@ export async function renderInstellingen(root) {
         </label>
         <button type="submit" class="btn btn-primary">Opslaan</button>
         <span id="prijs-status" class="save-status"></span>
+      </form>
+    </section>
+
+    <section class="kaart">
+      <h2>Betaalverzoek-tekst</h2>
+      <p class="muted">Deze tekst kopieer je op het Overzicht met de envelop boven een maand. Plaatshouders worden automatisch ingevuld: <code>{maand}</code> (bijv. augustus/september), <code>{dagen}</code> (aantal TSO-dagen) en <code>{bedrag}</code> (bijv. € 28,00).</p>
+      <form id="tekst-form">
+        <textarea id="betaalverzoek-tekst" class="tekst-sjabloon" rows="10">${escapeAttr(
+          betaalverzoekTekst || ''
+        )}</textarea>
+        <div class="inline-form">
+          <button type="submit" class="btn btn-primary">Opslaan</button>
+          <span id="tekst-status" class="save-status"></span>
+        </div>
       </form>
     </section>
 
@@ -68,6 +91,24 @@ export async function renderInstellingen(root) {
     } catch (err) {
       console.error(err);
       prijsStatus.textContent = 'Opslaan mislukt';
+    }
+  });
+
+  // --- Betaalverzoek-tekst -----------------------------------------------
+  const tekstStatus = root.querySelector('#tekst-status');
+  root.querySelector('#tekst-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const tekst = root.querySelector('#betaalverzoek-tekst').value.trim();
+    try {
+      await saveBetaalverzoekTekst(tekst || null);
+      tekstStatus.textContent = 'Opgeslagen ✓';
+      tekstStatus.classList.remove('fout');
+      tekstStatus.classList.add('zichtbaar');
+      setTimeout(() => tekstStatus.classList.remove('zichtbaar'), 1500);
+    } catch (err) {
+      console.error(err);
+      tekstStatus.textContent = 'Opslaan mislukt';
+      tekstStatus.classList.add('zichtbaar', 'fout');
     }
   });
 

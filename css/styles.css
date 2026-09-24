@@ -439,8 +439,25 @@ body {
 }
 .verzoek-rij:last-child th,
 .verzoek-rij:last-child td { border-bottom: 2px solid var(--rand); }
-/* Ook in een ingeklapte kolom blijft het aantal zichtbaar */
+/* Ook in een ingeklapte kolom blijft het aantal zichtbaar (zonder envelop) */
 .verzoek-cel.ingeklapt .cel-inhoud { display: flex; justify-content: center; font-size: 12px; }
+.verzoek-cel.ingeklapt .verzoek-mail { display: none; }
+.verzoek-mail {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--rand);
+  border-radius: 6px;
+  background: var(--wit);
+  color: var(--tekst-zacht);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.verzoek-mail:hover { color: var(--paars); border-color: var(--paars); background: #f7f5ff; }
+.verzoek-mail.gekopieerd { color: #15803d; border-color: #86efac; background: #f0fdf4; }
 
 /* Knopje in de maandkop: hele maand in één keer invullen */
 .maand-inhoud {
@@ -1367,3 +1384,18 @@ input[type="file"] { font-family: inherit; font-size: 14px; }
 .ontbrekend-acties .btn { padding: 5px 10px; font-size: 13px; }
 .ontbrekend-hint { font-size: 12px; color: var(--tekst-zacht); margin-top: 2px; }
 .ontbrekend-klaar { color: #15803d; font-weight: 600; font-size: 13px; }
+
+/* Instellingen: sjabloon betaalverzoek-tekst */
+.tekst-sjabloon {
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--rand);
+  border-radius: 8px;
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.5;
+  resize: vertical;
+}
+.tekst-sjabloon:focus { outline: 2px solid var(--paars-licht); border-color: var(--paars); }

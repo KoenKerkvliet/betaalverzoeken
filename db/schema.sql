@@ -13,6 +13,8 @@ create table if not exists public.instellingen (
   enc_salt     text,
   enc_check    text,
   enc_check_iv text,
+  -- Sjabloon voor de betaalverzoek-tekst (Overzicht → envelop). Plaatshouders: {maand}, {dagen}, {bedrag}.
+  betaalverzoek_tekst text,
   constraint instellingen_enkele_rij check (id = 1)
 );
 

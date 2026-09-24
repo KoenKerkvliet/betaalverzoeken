@@ -1,6 +1,7 @@
 import { euro } from './supabaseClient.js';
-import { MAANDEN, MAANDEN_KORT } from './config.js';
+import { MAANDEN, MAANDEN_KORT, MAANDEN_TEKST } from './config.js';
 import {
+  getInstellingen,
   getGroepen,
   getTsoDagen,
   upsertTsoDagen,
@@ -65,6 +66,37 @@ function krijgtVerzoek(l, M) {
   if (l.regelingen && Object.prototype.hasOwnProperty.call(l.regelingen, String(M))) return false;
   if ((l.uitgesloten_maanden || []).includes(M)) return false;
   return true;
+}
+
+const ENVELOP_SVG = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+  stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+  <rect x="2" y="4" width="20" height="16" rx="2" /><path d="m22 7-10 6L2 7" /></svg>`;
+
+// Vult het sjabloon van de betaalverzoek-tekst in. Plaatshouders: {maand},
+// {dagen}, {bedrag}. Harde spaties uit de euro-notatie worden gewone spaties,
+// zodat de tekst overal netjes plakt.
+function vulBetaalverzoekTekst(sjabloon, { maand, dagen, bedrag }) {
+  return sjabloon
+    .replaceAll('{maand}', MAANDEN_TEKST[maand - 1])
+    .replaceAll('{dagen}', String(dagen))
+    .replaceAll('{bedrag}', euro.format(bedrag).replace(/[\u00a0\u202f]/g, ' '));
+}
+
+async function kopieerNaarKlembord(tekst) {
+  try {
+    await navigator.clipboard.writeText(tekst);
+  } catch {
+    // Terugval voor browsers die de Clipboard API weigeren.
+    const ta = document.createElement('textarea');
+    ta.value = tekst;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    const gelukt = document.execCommand('copy');
+    ta.remove();
+    if (!gelukt) throw new Error('Kopiëren naar het klembord mislukt');
+  }
 }
 
 // Eén regel in het uitklap-popupje van "Overgemaakt".
@@ -174,6 +206,7 @@ export async function renderOverzicht(root) {
   const dagprijs = Number(schooljaar?.tso_dagprijs) || 0;
   const groepen = schooljaar ? await getGroepen(schooljaar.id) : [];
   const dagen = await getTsoDagen(groepen.map((g) => g.id));
+  const { betaalverzoek_tekst: betaalverzoekTekst } = await getInstellingen();
 
   // Snelle opzoektabel: "groepId:maand" -> aantal dagen
   const kaart = new Map();
@@ -304,7 +337,14 @@ export async function renderOverzicht(root) {
           const dicht = ingeklapt.has(maand) ? ' ingeklapt' : '';
           const { totaal, titel } = verzoekenVoor(b, maand);
           return `<td class="cel verzoek-cel${dicht}" data-col="${maand}" data-blok="${b.sleutel}"
-                      title="${escapeHtml(titel)}"><span class="cel-inhoud">${totaal}</span></td>`;
+                      title="${escapeHtml(titel)}">
+                    <span class="cel-inhoud">
+                      <button type="button" class="verzoek-mail" data-blok="${b.sleutel}" data-maand="${maand}"
+                              title="Betaalverzoek-tekst kopiëren"
+                              aria-label="Betaalverzoek-tekst ${escapeHtml(b.label)} ${MAANDEN[i]} kopiëren">${ENVELOP_SVG}</button>
+                      <span class="verzoek-aantal">${totaal}</span>
+                    </span>
+                  </td>`;
         }).join('')}
         <td class="totaal-cel"></td>
       </tr>`
@@ -487,11 +527,68 @@ export async function renderOverzicht(root) {
         if (!cel) continue;
         const { totaal, titel } = verzoekenVoor(b, m);
         cel.title = titel;
-        cel.querySelector('.cel-inhoud').textContent = totaal;
+        cel.querySelector('.verzoek-aantal').textContent = totaal;
       }
     }
   }
   herbereken();
+
+  function meldFout(tekst) {
+    status.textContent = tekst;
+    status.classList.add('zichtbaar', 'fout');
+    clearTimeout(statusTimer);
+    statusTimer = setTimeout(() => status.classList.remove('zichtbaar', 'fout'), 5000);
+  }
+
+  // --- Envelop: betaalverzoek-tekst van een blok + maand kopiëren ----------
+  // De dagen moeten binnen het blok gelijk zijn, anders klopt de tekst niet
+  // voor alle ouders. Groepen met 0 dagen (geen TSO) en lege cellen tellen
+  // daarbij niet mee.
+  root.querySelectorAll('.verzoek-mail').forEach((knop) => {
+    knop.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const blok = blokken.find((b) => b.sleutel === knop.dataset.blok);
+      const maand = Number(knop.dataset.maand);
+      const label = `${blok.label} · ${MAANDEN[maand - 1]}`;
+
+      if (!(betaalverzoekTekst || '').trim()) {
+        meldFout('Stel eerst de betaalverzoek-tekst in bij Instellingen.');
+        return;
+      }
+      const perGroep = blok.groepen
+        .map((g) => ({ naam: g.naam, dagen: kaart.get(`${g.id}:${maand}`) }))
+        .filter((x) => x.dagen != null && x.dagen !== '' && Number(x.dagen) > 0);
+      const verschillend = [...new Set(perGroep.map((x) => Number(x.dagen)))];
+      if (!verschillend.length) {
+        meldFout(`${label}: vul eerst het aantal TSO-dagen in.`);
+        return;
+      }
+      if (verschillend.length > 1) {
+        meldFout(
+          `${label}: niet alle groepen hebben evenveel TSO-dagen (${perGroep
+            .map((x) => `${x.naam}: ${x.dagen}`)
+            .join(', ')}). Kopieer de tekst per groep handmatig.`
+        );
+        return;
+      }
+
+      const dagenNum = verschillend[0];
+      const tekst = vulBetaalverzoekTekst(betaalverzoekTekst, {
+        maand,
+        dagen: dagenNum,
+        bedrag: dagenNum * dagprijs,
+      });
+      try {
+        await kopieerNaarKlembord(tekst);
+        knop.classList.add('gekopieerd');
+        setTimeout(() => knop.classList.remove('gekopieerd'), 1500);
+        meldOpgeslagen(`Tekst voor ${label} gekopieerd ✓`);
+      } catch (err) {
+        console.error(err);
+        meldFout('Kopiëren naar het klembord mislukt.');
+      }
+    });
+  });
 
   // Debounced opslaan per cel.
   const timers = new Map();
