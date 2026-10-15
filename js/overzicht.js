@@ -1,6 +1,7 @@
 import { euro } from './supabaseClient.js';
 import { MAANDEN, MAANDEN_KORT, MAANDEN_TEKST } from './config.js';
 import {
+  getSchooljaren,
   getInstellingen,
   getGroepen,
   getTsoDagen,
@@ -535,9 +536,14 @@ export async function renderOverzicht(root) {
     <p id="save-status" class="save-status" aria-live="polite"></p>
 
     <section class="kaart breed-sectie leergeld-sectie">
-      <button type="button" class="sectie-kop${leergeldIngeklapt() ? ' dicht' : ''}" id="leergeld-kop">
-        <h2>Leergeld (${leerlingRijen.filter((r) => r.leergeld).length})</h2><span class="chevron">▾</span>
-      </button>
+      <div role="button" tabindex="0" class="sectie-kop${leergeldIngeklapt() ? ' dicht' : ''}" id="leergeld-kop">
+        <span class="sectie-kop-titel">
+          <h2>Leergeld (${leerlingRijen.filter((r) => r.leergeld).length})</h2>
+          <button type="button" class="sectie-instellingen" id="leergeld-instellingen"
+                  title="Instellingen" aria-label="Leergeld-instellingen">⚙︎</button>
+        </span>
+        <span class="chevron">▾</span>
+      </div>
       <div class="sectie-body" id="leergeld-inhoud"${leergeldIngeklapt() ? ' hidden' : ''}>
         <p class="muted">Leerlingen waarvan Stichting Leergeld de kosten vergoedt. Zij doen niet mee met de maandelijkse betalingen en staan op de groepspagina zacht oranje gemarkeerd.</p>
 
@@ -904,12 +910,166 @@ export async function renderOverzicht(root) {
   // --- Leergeld: in/uitklappen -------------------------------------------
   const lgKop = root.querySelector('#leergeld-kop');
   const lgInhoud = root.querySelector('#leergeld-inhoud');
-  lgKop.addEventListener('click', () => {
+  lgKop.addEventListener('keydown', (e) => {
+    if (e.target === lgKop && (e.key === 'Enter' || e.key === ' ')) {
+      e.preventDefault();
+      lgKop.click();
+    }
+  });
+  lgKop.addEventListener('click', (e) => {
+    if (e.target.closest('#leergeld-instellingen')) return;
     const dicht = !lgInhoud.hidden;
     lgInhoud.hidden = dicht;
     lgKop.classList.toggle('dicht', dicht);
     setLeergeldIngeklapt(dicht);
   });
+
+  // --- Leergeld: instellingen → vergelijk met vorig schooljaar -----------
+  root.querySelector('#leergeld-instellingen').addEventListener('click', (e) => {
+    e.stopPropagation();
+    openLeergeldInstellingen();
+  });
+
+  function maakModal(html) {
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    overlay.innerHTML = html;
+    document.body.appendChild(overlay);
+    const sluit = () => overlay.remove();
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) sluit();
+    });
+    overlay.querySelector('.modal-x').addEventListener('click', sluit);
+    overlay.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') sluit();
+    });
+    return { overlay, sluit };
+  }
+
+  function openLeergeldInstellingen() {
+    const { overlay, sluit } = maakModal(`
+      <div class="modal-card">
+        <div class="modal-kop">
+          <h2>Leergeld · instellingen</h2>
+          <button type="button" class="modal-x" aria-label="Sluiten">✕</button>
+        </div>
+        <p class="muted">Welke kinderen hadden vorig schooljaar leergeld, en hoe staat het er nu voor?</p>
+        <div class="modal-acties">
+          <button type="button" class="btn btn-primary" id="lg-vergelijk">Vergelijk met vorig jaar</button>
+        </div>
+      </div>`);
+    overlay.querySelector('#lg-vergelijk').addEventListener('click', () => {
+      sluit();
+      openLeergeldVergelijk();
+    });
+  }
+
+  async function openLeergeldVergelijk() {
+    const { overlay } = maakModal(`
+      <div class="modal-card leergeld-vergelijk-card">
+        <div class="modal-kop">
+          <h2>Leergeld · vergelijk met vorig jaar</h2>
+          <button type="button" class="modal-x" aria-label="Sluiten">✕</button>
+        </div>
+        <div id="lg-vergelijk-inhoud"><p class="muted">Laden…</p></div>
+      </div>`);
+    const inhoud = overlay.querySelector('#lg-vergelijk-inhoud');
+
+    try {
+      if (!isUnlocked()) {
+        inhoud.innerHTML = '<p class="muted">Ontgrendel eerst de namen om te kunnen vergelijken.</p>';
+        return;
+      }
+      // Vorig schooljaar = het eerstvolgende oudere schooljaar (op naam).
+      const vorig = (await getSchooljaren())
+        .filter((sj) => sj.naam < schooljaar.naam)
+        .sort((a, b) => b.naam.localeCompare(a.naam))[0];
+      if (!vorig) {
+        inhoud.innerHTML = '<p class="muted">Er is geen vorig schooljaar om mee te vergelijken.</p>';
+        return;
+      }
+      const vorigeGroepen = await getGroepen(vorig.id);
+      const vorigeNaam = new Map(vorigeGroepen.map((g) => [g.id, g.naam]));
+      const vorigeVolgorde = new Map(vorigeGroepen.map((g) => [g.id, g.volgorde]));
+      const vorigeRijen = (await getLeerlingen(vorigeGroepen.map((g) => g.id))).filter(
+        (r) => r.leergeld
+      );
+
+      // Leerlingen worden op volledige naam gekoppeld (zonder hoofdletters/accenten).
+      const sleutel = (v, a) =>
+        `${v} ${a}`
+          .normalize('NFD')
+          .replace(/[̀-ͯ]/g, '')
+          .toLowerCase()
+          .replace(/\s+/g, ' ')
+          .trim();
+      const nu = new Map(alleLeerlingen.map((l) => [sleutel(l.voornaam, l.achternaam), l]));
+
+      const nogSteeds = [];
+      const nietMeer = [];
+      for (const r of vorigeRijen) {
+        let v = '⚠︎ onleesbaar';
+        let a = '';
+        try {
+          ({ v, a } = JSON.parse(await decryptText(r.enc_naam, r.iv)));
+        } catch {
+          /* onleesbaar */
+        }
+        const dezeKeer = nu.get(sleutel(v, a));
+        const item = {
+          naam: pseudoniem(v, a),
+          vorigGroep: vorigeNaam.get(r.groep_id) || '',
+          vorigVolgorde: vorigeVolgorde.get(r.groep_id) ?? 99,
+          nuGroep: dezeKeer ? groepNaam.get(dezeKeer.groep_id) || '' : '',
+          nuVolgorde: dezeKeer ? groepVolgorde.get(dezeKeer.groep_id) ?? 99 : 99,
+          opSchool: !!dezeKeer,
+        };
+        (dezeKeer?.leergeld ? nogSteeds : nietMeer).push(item);
+      }
+      const opVolgorde = (k) => (x, y) => x[k] - y[k] || x.naam.localeCompare(y.naam, 'nl');
+      nogSteeds.sort(opVolgorde('nuVolgorde'));
+      // Eerst de kinderen die nog op school zitten (die kunnen het nog aanvragen).
+      nietMeer.sort(
+        (x, y) => Number(y.opSchool) - Number(x.opSchool) || opVolgorde('nuVolgorde')(x, y) || opVolgorde('vorigVolgorde')(x, y)
+      );
+
+      const tabel = (rijen, kolommen) =>
+        rijen.length
+          ? `<table class="import-tabel"><thead><tr>${kolommen
+              .map((k) => `<th>${escapeHtml(k.kop)}</th>`)
+              .join('')}</tr></thead><tbody>${rijen
+              .map(
+                (r) =>
+                  `<tr${r.opSchool ? '' : ' class="lg-weg"'}>${kolommen
+                    .map((k) => `<td>${escapeHtml(k.waarde(r))}</td>`)
+                    .join('')}</tr>`
+              )
+              .join('')}</tbody></table>`
+          : '<p class="muted">Geen.</p>';
+
+      const aanvragen = nietMeer.filter((r) => r.opSchool).length;
+      inhoud.innerHTML = `
+        <p class="muted" style="margin-top:0">${escapeHtml(vorig.naam)}: ${vorigeRijen.length} leerlingen met leergeld.</p>
+
+        <h3 class="lg-kop">Ook dit jaar leergeld (${nogSteeds.length})</h3>
+        ${tabel(nogSteeds, [
+          { kop: 'Naam', waarde: (r) => r.naam },
+          { kop: `Groep ${vorig.naam}`, waarde: (r) => r.vorigGroep },
+          { kop: `Groep ${schooljaar.naam}`, waarde: (r) => r.nuGroep },
+        ])}
+
+        <h3 class="lg-kop">Vorig jaar wel, nu niet (${nietMeer.length})</h3>
+        <p class="muted" style="margin:0 0 6px">${aanvragen} van hen zitten nog op school en kunnen het mogelijk nog aanvragen. Grijs: niet gevonden in ${escapeHtml(schooljaar.naam)} (andere schrijfwijze of van school af).</p>
+        ${tabel(nietMeer, [
+          { kop: 'Naam', waarde: (r) => r.naam },
+          { kop: `Groep ${vorig.naam}`, waarde: (r) => r.vorigGroep },
+          { kop: `Groep ${schooljaar.naam}`, waarde: (r) => (r.opSchool ? r.nuGroep : '—') },
+        ])}`;
+    } catch (err) {
+      console.error(err);
+      inhoud.innerHTML = '<p class="muted">Vergelijken is mislukt.</p>';
+    }
+  }
 
   // --- Leergeld: zoeken en koppelen --------------------------------------
   const zoek = root.querySelector('#leergeld-zoek');

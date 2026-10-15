@@ -1431,3 +1431,19 @@ input[type="file"] { font-family: inherit; font-size: 14px; }
   resize: vertical;
 }
 .tekst-sjabloon:focus { outline: 2px solid var(--paars-licht); border-color: var(--paars); }
+
+/* Leergeld: instellingen en vergelijk met vorig jaar */
+.sectie-kop-titel { display: flex; align-items: center; gap: 8px; }
+.sectie-instellingen {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  color: var(--tekst-zacht);
+  font-size: 16px;
+  padding: 2px 6px;
+  border-radius: 6px;
+}
+.sectie-instellingen:hover { background: #f3f4f6; color: var(--tekst); }
+.leergeld-vergelijk-card { max-width: 640px; }
+.lg-kop { margin: 18px 0 6px; font-size: 14px; }
+.lg-weg td { color: var(--tekst-zacht); opacity: 0.7; }
