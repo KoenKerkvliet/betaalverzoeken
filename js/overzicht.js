@@ -350,7 +350,8 @@ export async function renderOverzicht(root) {
 
   // Openstaand: leerlingen met €0,00-maanden, met de ontsleutelde namen.
   const naamMap = new Map(alleLeerlingen.map((l) => [l.id, l]));
-  const openstaandRijen = (await getOpenstaand(schooljaar.id))
+  const openstaandRaw = await getOpenstaand(schooljaar.id);
+  const openstaandRijen = openstaandRaw
     .map((r) => ({ ...r, leerling: naamMap.get(r.leerling_id) }))
     .filter((r) => r.leerling)
     .sort(
@@ -358,6 +359,20 @@ export async function renderOverzicht(root) {
         a.volgorde - b.volgorde || a.leerling.voornaam.localeCompare(b.leerling.voornaam, 'nl')
     );
   const openstaandTotaal = openstaandRijen.reduce((s, r) => s + Number(r.totaal), 0);
+
+  // Percentage niet-betaalde maanden t.o.v. de uitgezette verzoeken (alleen maanden
+  // waarvan betalingen zijn geïmporteerd).
+  const uitgezetteMaanden = Object.keys(schoolMaand).map(Number);
+  let uitgezetAantal = 0;
+  for (const g of groepen) {
+    for (const m of uitgezetteMaanden) {
+      if (kaart.get(`${g.id}:${m}`) === 0) continue;
+      uitgezetAantal += verzoekTelling.get(`${g.id}:${m}`) || 0;
+    }
+  }
+  const nietBetaaldAantal = openstaandRaw.reduce((s, r) => s + (r.posten?.length || 0), 0);
+  const openstaandPct = uitgezetAantal ? (nietBetaaldAantal / uitgezetAantal) * 100 : 0;
+  const openstaandPctTekst = `${openstaandPct.toLocaleString('nl-NL', { maximumFractionDigits: 1 })}%`;
 
   // Leerlingen met notities (met ontsleutelde namen).
   const notitieLeerlingRijen = (await getNotitieLeerlingen(schooljaar.id))
@@ -549,7 +564,7 @@ export async function renderOverzicht(root) {
     </section>
 
     <section class="kaart breed-sectie">
-      <h2>Openstaand</h2>
+      <h2 title="${nietBetaaldAantal} niet betaald van ${uitgezetAantal} uitgezette verzoeken">Openstaand (${openstaandPctTekst})</h2>
       <p class="muted">Leerlingen met maanden op €0,00: uitgevraagd, niets binnengekomen. Het bedrag is wat het had moeten zijn (TSO-dagen × dagprijs). Lege maanden en deelbetalingen tellen niet mee; leergeld, regelingen en uitgesloten/vóór-instroom-maanden ook niet.</p>
       <table class="import-tabel openstaand-tabel">
         <thead><tr><th>Naam</th><th>Groep</th><th>Niet betaald</th><th>Openstaand</th></tr></thead>
