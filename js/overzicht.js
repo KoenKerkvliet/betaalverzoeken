@@ -521,7 +521,7 @@ export async function renderOverzicht(root) {
 
     <section class="kaart breed-sectie leergeld-sectie">
       <button type="button" class="sectie-kop${leergeldIngeklapt() ? ' dicht' : ''}" id="leergeld-kop">
-        <h2>Leergeld</h2><span class="chevron">▾</span>
+        <h2>Leergeld (${leerlingRijen.filter((r) => r.leergeld).length})</h2><span class="chevron">▾</span>
       </button>
       <div class="sectie-body" id="leergeld-inhoud"${leergeldIngeklapt() ? ' hidden' : ''}>
         <p class="muted">Leerlingen waarvan Stichting Leergeld de kosten vergoedt. Zij doen niet mee met de maandelijkse betalingen en staan op de groepspagina zacht oranje gemarkeerd.</p>
