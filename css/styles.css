@@ -1447,3 +1447,4 @@ input[type="file"] { font-family: inherit; font-size: 14px; }
 .leergeld-vergelijk-card { max-width: 640px; }
 .lg-kop { margin: 18px 0 6px; font-size: 14px; }
 .lg-weg td { color: var(--tekst-zacht); opacity: 0.7; }
+.lg-los { color: var(--paars); font-weight: 600; cursor: help; }

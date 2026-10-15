@@ -16,7 +16,7 @@ import {
   getOpenstaand,
   getNotitieLeerlingen,
 } from './data.js';
-import { parseBedrag } from './util.js';
+import { parseBedrag, normaliseer } from './util.js';
 import { decryptText, isUnlocked } from './crypto.js';
 import { getHuidigSchooljaar } from './state.js';
 
@@ -995,15 +995,34 @@ export async function renderOverzicht(root) {
         (r) => r.leergeld
       );
 
-      // Leerlingen worden op volledige naam gekoppeld (zonder hoofdletters/accenten).
-      const sleutel = (v, a) =>
-        `${v} ${a}`
-          .normalize('NFD')
-          .replace(/[̀-ͯ]/g, '')
-          .toLowerCase()
-          .replace(/\s+/g, ' ')
-          .trim();
-      const nu = new Map(alleLeerlingen.map((l) => [sleutel(l.voornaam, l.achternaam), l]));
+      // Koppelen in stappen, van streng naar los. De namen komen per jaar uit
+      // een aparte import, dus tussenvoegsels, roepnaam vs. voornamen of een
+      // dubbele achternaam kunnen verschillen. Losse stappen tellen alleen bij
+      // precies één kandidaat, en bij stap 3 en 4 moet de groep kloppen
+      // (zelfde jaargroep of één hoger).
+      const woorden = (s) => normaliseer(s).split(' ').filter(Boolean);
+      const eerste = (s) => woorden(s)[0] || '';
+      const kern = (s) => woorden(s).pop() || '';
+      const jaar = (naam) => Number((String(naam).match(/\d+/) || [])[0]) || 0;
+      const nuJaar = (l) => jaar(groepNaam.get(l.groep_id));
+      const stappen = [
+        (v, a) => (l) => normaliseer(`${l.voornaam} ${l.achternaam}`) === normaliseer(`${v} ${a}`),
+        (v, a) => (l) => eerste(l.voornaam) === eerste(v) && kern(l.achternaam) === kern(a),
+        (v, a, vj) => (l) =>
+          eerste(l.voornaam) === eerste(v) &&
+          kern(l.achternaam)[0] === kern(a)[0] &&
+          [vj, vj + 1].includes(nuJaar(l)),
+        (v, a, vj) => (l) => kern(l.achternaam) === kern(a) && [vj, vj + 1].includes(nuJaar(l)),
+      ];
+      const zoekNu = (v, a, vj) => {
+        for (let i = 0; i < stappen.length; i++) {
+          const kandidaten = alleLeerlingen.filter(stappen[i](v, a, vj));
+          if (kandidaten.length === 1 || (i === 0 && kandidaten.length)) {
+            return { leerling: kandidaten[0], los: i > 0 };
+          }
+        }
+        return { leerling: null, los: false };
+      };
 
       const nogSteeds = [];
       const nietMeer = [];
@@ -1015,10 +1034,16 @@ export async function renderOverzicht(root) {
         } catch {
           /* onleesbaar */
         }
-        const dezeKeer = nu.get(sleutel(v, a));
+        const vorigGroep = vorigeNaam.get(r.groep_id) || '';
+        const { leerling: dezeKeer, los } = zoekNu(v, a, jaar(vorigGroep));
         const item = {
           naam: pseudoniem(v, a),
-          vorigGroep: vorigeNaam.get(r.groep_id) || '',
+          los,
+          // Bij een losse koppeling beide volledige namen tonen, ter controle.
+          titel: los
+            ? `Gekoppeld op een iets andere naam. Vorig jaar: ${v} ${a} · nu: ${dezeKeer.voornaam} ${dezeKeer.achternaam}`
+            : '',
+          vorigGroep,
           vorigVolgorde: vorigeVolgorde.get(r.groep_id) ?? 99,
           nuGroep: dezeKeer ? groepNaam.get(dezeKeer.groep_id) || '' : '',
           nuVolgorde: dezeKeer ? groepVolgorde.get(dezeKeer.groep_id) ?? 99 : 99,
@@ -1040,8 +1065,15 @@ export async function renderOverzicht(root) {
               .join('')}</tr></thead><tbody>${rijen
               .map(
                 (r) =>
-                  `<tr${r.opSchool ? '' : ' class="lg-weg"'}>${kolommen
-                    .map((k) => `<td>${escapeHtml(k.waarde(r))}</td>`)
+                  `<tr${r.opSchool ? '' : ' class="lg-weg"'}${
+                    r.titel ? ` title="${escapeHtml(r.titel)}"` : ''
+                  }>${kolommen
+                    .map(
+                      (k, i) =>
+                        `<td>${escapeHtml(k.waarde(r))}${
+                          i === 0 && r.los ? ' <span class="lg-los">≈</span>' : ''
+                        }</td>`
+                    )
                     .join('')}</tr>`
               )
               .join('')}</tbody></table>`
@@ -1059,7 +1091,7 @@ export async function renderOverzicht(root) {
         ])}
 
         <h3 class="lg-kop">Vorig jaar wel, nu niet (${nietMeer.length})</h3>
-        <p class="muted" style="margin:0 0 6px">${aanvragen} van hen zitten nog op school en kunnen het mogelijk nog aanvragen. Grijs: niet gevonden in ${escapeHtml(schooljaar.naam)} (andere schrijfwijze of van school af).</p>
+        <p class="muted" style="margin:0 0 6px">${aanvragen} van hen zitten nog op school en kunnen het mogelijk nog aanvragen. Grijs: niet gevonden in ${escapeHtml(schooljaar.naam)} (waarschijnlijk van school af). ≈ = gekoppeld op een iets andere naam; houd de muis erop voor beide namen.</p>
         ${tabel(nietMeer, [
           { kop: 'Naam', waarde: (r) => r.naam },
           { kop: `Groep ${vorig.naam}`, waarde: (r) => r.vorigGroep },
